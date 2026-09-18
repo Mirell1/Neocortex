@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>NEOCORTEX — Entrar</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="auth">
+    <div class="auth-panel">
+      <h1 style="font-size:22px;font-weight:900;">NEOCORTEX</h1>
+      <p style="margin-top:auto;opacity:.85;">Organize sua rotina com ajuda de IA.</p>
+    </div>
+
+    <div class="auth-content">
+      <div class="form-box fade">
+
+        <div class="tabs" style="margin-bottom:28px;">
+          <button type="button" class="tab {{ 'active' if aba != 'cadastro' else '' }}" onclick="mostrarAba('login')">Entrar</button>
+          <button type="button" class="tab {{ 'active' if aba == 'cadastro' else '' }}" onclick="mostrarAba('cadastro')">Criar conta</button>
+        </div>
+
+        {% if erro %}
+          <p class="error-text">{{ erro }}</p>
+        {% endif %}
+
+        <!-- ===== FORM DE LOGIN ===== -->
+        <form id="form-login" method="POST" action="{{ url_for('tela_login') }}"
+              style="display:{{ 'none' if aba == 'cadastro' else 'block' }};">
+          <h2>Bem-vinda de volta</h2>
+          <p class="subtitle">Entra com seu e-mail e senha.</p>
+
+          <div class="field-block">
+            <label class="label">E-mail</label>
+            <input class="field" type="email" name="email" required>
+          </div>
+          <div class="field-block">
+            <label class="label">Senha</label>
+            <input class="field" type="password" name="senha" required>
+          </div>
+
+          <div class="auth-actions">
+            <button class="primary" type="submit">Entrar</button>
+          </div>
+        </form>
+
+        <!-- ===== FORM DE CADASTRO ===== -->
+        <form id="form-cadastro" method="POST" action="{{ url_for('cadastro') }}"
+              style="display:{{ 'block' if aba == 'cadastro' else 'none' }};">
+          <h2>Criar sua conta</h2>
+          <p class="subtitle">Conta pra gente um pouco sobre você.</p>
+
+          <div class="field-block">
+            <label class="label">Nome</label>
+            <input class="field" type="text" name="nome" required>
+          </div>
+          <div class="field-block">
+            <label class="label">E-mail</label>
+            <input class="field" type="email" name="email" required>
+          </div>
+          <div class="field-block">
+            <label class="label">Senha</label>
+            <input class="field" type="password" name="senha" required>
+          </div>
+
+          <div class="question">
+            <div class="question-title">Faixa etária</div>
+            <div class="chips">
+              <label class="chip"><input type="radio" name="faixa_etaria" value="14-18" style="display:none" required> 14-18</label>
+              <label class="chip"><input type="radio" name="faixa_etaria" value="18-30" style="display:none"> 18-30</label>
+              <label class="chip"><input type="radio" name="faixa_etaria" value="30-50+" style="display:none"> 30-50+</label>
+            </div>
+          </div>
+
+          <div class="question">
+            <div class="question-title">Você trabalha, estuda ou nenhum dos dois?</div>
+            <div class="chips">
+              <label class="chip"><input type="radio" name="ocupacao" value="trabalha" style="display:none" required> Trabalha</label>
+              <label class="chip"><input type="radio" name="ocupacao" value="estuda" style="display:none"> Estuda</label>
+              <label class="chip"><input type="radio" name="ocupacao" value="nenhum" style="display:none"> Nenhum</label>
+            </div>
+          </div>
+
+          <div class="question">
+            <div class="question-title">Turno</div>
+            <div class="chips">
+              <label class="chip"><input type="radio" name="turno" value="manha" style="display:none"> Manhã</label>
+              <label class="chip"><input type="radio" name="turno" value="tarde" style="display:none"> Tarde</label>
+              <label class="chip"><input type="radio" name="turno" value="noite" style="display:none"> Noite</label>
+            </div>
+          </div>
+
+          <div class="field-block">
+            <label class="label">Hobbies (separados por vírgula)</label>
+            <input class="field" type="text" name="hobbies" placeholder="leitura, videogame, academia">
+          </div>
+
+          <div class="auth-actions">
+            <button class="primary" type="submit">Cadastrar</button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

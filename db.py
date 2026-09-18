@@ -18,13 +18,15 @@ Requisitos:
 """
 
 import os
-from dotenv import load_dotenv
-load_dotenv()
 import psycopg2
 import psycopg2.extras
 import bcrypt
 from contextlib import contextmanager
+from dotenv import load_dotenv
 
+# Lê o arquivo .env (que fica na mesma pasta) e carrega as variáveis
+# de ambiente automaticamente, sem precisar fazer nada manual.
+load_dotenv()
 
 # Dados de conexão. Em produção, prefira variáveis de ambiente
 # (nunca deixe usuário/senha reais fixos no código).

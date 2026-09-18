@@ -1,123 +1,158 @@
 """
-NEOCORTEX — app.py
-Interface Streamlit que liga tudo: cadastro, login, tarefas e dashboard.
+NEOCORTEX — app.py (Flask)
+O "zelador da casa": decide qual página HTML mostrar, busca os dados
+no db.py quando precisa, e entrega a página pronta pro navegador.
 """
 
-import streamlit as st
-import db
+import os
 import pandas as pd
 import plotly.express as px
+from flask import Flask, render_template, request, redirect, url_for, session
 
-st.set_page_config(page_title="NEOCORTEX", layout="wide")
+import db
 
-# ------------------------------------------------------------
-# "Mochila" que guarda quem está logado entre um clique e outro
-# ------------------------------------------------------------
-if "id_usuario" not in st.session_state:
-    st.session_state.id_usuario = None
+app = Flask(__name__)
+
+# Chave usada pelo Flask pra "assinar" o cookie de sessão (quem está
+# logado). Em produção, isso também deveria vir do .env — por ora,
+# um valor fixo simples já resolve pro MVP.
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "troque-essa-chave-em-producao")
 
 
-# ============================================================
-# TELA DE LOGIN / CADASTRO (só aparece se ninguém estiver logado)
-# ============================================================
-def tela_login_cadastro():
-    st.title("NEOCORTEX")
-    aba_login, aba_cadastro = st.tabs(["Entrar", "Criar conta"])
-
-    with aba_login:
-        with st.form("form_login"):
-            email = st.text_input("E-mail")
-            senha = st.text_input("Senha", type="password")
-            if st.form_submit_button("Entrar"):
-                usuario = db.verificar_login(email, senha)
-                if usuario:
-                    st.session_state.id_usuario = usuario["id_usuario"]
-                    st.rerun()
-                else:
-                    st.error("E-mail ou senha errados.")
-
-    with aba_cadastro:
-        with st.form("form_cadastro"):
-            nome = st.text_input("Nome")
-            email = st.text_input("E-mail", key="cad_email")
-            senha = st.text_input("Senha", type="password", key="cad_senha")
-            faixa_etaria = st.selectbox("Faixa etária", ["14-18", "18-30", "30-50+"])
-            ocupacao = st.selectbox("Você trabalha, estuda ou nenhum?", ["trabalha", "estuda", "nenhum"])
-            turno = st.selectbox("Turno", ["manha", "tarde", "noite", "personalizado"])
-            hobbies_texto = st.text_input("Hobbies (separados por vírgula)")
-
-            if st.form_submit_button("Cadastrar"):
-                try:
-                    id_usuario = db.cadastrar_usuario(nome, email, senha, faixa_etaria, ocupacao, turno)
-                    for hobby in hobbies_texto.split(","):
-                        if hobby.strip():
-                            db.associar_hobby(id_usuario, hobby)
-                    st.session_state.id_usuario = id_usuario
-                    st.rerun()
-                except ValueError as erro:
-                    st.error(str(erro))
+def usuario_logado():
+    """Devolve o id do usuário logado, ou None se ninguém estiver logado."""
+    return session.get("id_usuario")
 
 
 # ============================================================
-# TELA DE TAREFAS
+# ROTA INICIAL — manda pra tarefas se já estiver logado,
+# ou pra tela de login se não estiver
 # ============================================================
-def tela_tarefas():
-    st.header("Minhas tarefas")
-
-    with st.form("form_tarefa"):
-        titulo = st.text_input("Título da tarefa")
-        col1, col2 = st.columns(2)
-        with col1:
-            data_inicio = st.text_input("Início (ex: 2026-09-17T19:00)")
-        with col2:
-            data_fim = st.text_input("Fim (ex: 2026-09-17T21:00)")
-        categoria = st.selectbox("Categoria", ["trabalho", "estudo", "hobby", "pessoal", "saude", "outro"])
-        if st.form_submit_button("Salvar tarefa"):
-            db.criar_tarefa(st.session_state.id_usuario, titulo, data_inicio, data_fim, categoria=categoria)
-            st.rerun()
-
-    tarefas = db.listar_tarefas(st.session_state.id_usuario)
-    for t in tarefas:
-        col1, col2, col3 = st.columns([4, 2, 1])
-        col1.write(f"**{t['titulo']}** — {t['categoria']}")
-        col2.write(t["status"])
-        if t["status"] != "concluida":
-            if col3.button("Concluir", key=f"concluir_{t['id_tarefa']}"):
-                db.marcar_tarefa_concluida(t["id_tarefa"])
-                st.rerun()
+@app.route("/")
+def inicio():
+    if usuario_logado():
+        return redirect(url_for("tarefas"))
+    return redirect(url_for("tela_login"))
 
 
 # ============================================================
-# TELA DE DASHBOARD
+# LOGIN / CADASTRO
 # ============================================================
-def tela_dashboard():
-    st.header("Dashboard de produtividade")
+@app.route("/login", methods=["GET", "POST"])
+def tela_login():
+    if request.method == "GET":
+        return render_template("auth.html", aba="login", erro=None)
 
-    tarefas = db.listar_tarefas(st.session_state.id_usuario)
-    df = pd.DataFrame(tarefas)
+    email = request.form["email"]
+    senha = request.form["senha"]
+    usuario = db.verificar_login(email, senha)
 
-    if df.empty:
-        st.info("Cadastre tarefas pra ver o dashboard.")
-        return
+    if usuario:
+        session["id_usuario"] = usuario["id_usuario"]
+        session["nome"] = usuario["nome"]
+        return redirect(url_for("tarefas"))
 
-    contagem_status = df["status"].value_counts().reset_index()
-    contagem_status.columns = ["status", "quantidade"]
-    st.plotly_chart(px.bar(contagem_status, x="status", y="quantidade", title="Tarefas por status"))
+    return render_template("auth.html", aba="login", erro="E-mail ou senha errados.")
+
+
+@app.route("/cadastro", methods=["POST"])
+def cadastro():
+    nome = request.form["nome"]
+    email = request.form["email"]
+    senha = request.form["senha"]
+    faixa_etaria = request.form["faixa_etaria"]
+    ocupacao = request.form["ocupacao"]
+    turno = request.form.get("turno")
+    hobbies_texto = request.form.get("hobbies", "")
+
+    try:
+        id_usuario = db.cadastrar_usuario(nome, email, senha, faixa_etaria, ocupacao, turno)
+        for hobby in hobbies_texto.split(","):
+            if hobby.strip():
+                db.associar_hobby(id_usuario, hobby)
+
+        session["id_usuario"] = id_usuario
+        session["nome"] = nome
+        return redirect(url_for("tarefas"))
+
+    except ValueError as erro:
+        return render_template("auth.html", aba="cadastro", erro=str(erro))
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("tela_login"))
 
 
 # ============================================================
-# ROTEAMENTO PRINCIPAL
+# TAREFAS
 # ============================================================
-if st.session_state.id_usuario is None:
-    tela_login_cadastro()
-else:
-    st.sidebar.write(f"Usuário logado: id {st.session_state.id_usuario}")
-    if st.sidebar.button("Sair"):
-        st.session_state.id_usuario = None
-        st.rerun()
+@app.route("/tarefas")
+def tarefas():
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
 
-    aba = st.sidebar.radio("Ir para:", ["Tarefas", "Dashboard"])
-    if aba == "Tarefas":
-        tela_tarefas()
-    else:
-        tela_dashboard()
+    lista_tarefas = db.listar_tarefas(usuario_logado())
+    return render_template(
+        "tarefas.html",
+        tarefas=lista_tarefas,
+        pagina="tarefas",
+        titulo_pagina="Tarefas",
+        inicial_usuario=session.get("nome", "?")[0].upper(),
+    )
+
+
+@app.route("/tarefas/nova", methods=["POST"])
+def criar_tarefa():
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+
+    db.criar_tarefa(
+        usuario_logado(),
+        titulo=request.form["titulo"],
+        data_inicio=request.form["data_inicio"],
+        data_fim=request.form["data_fim"],
+        categoria=request.form.get("categoria"),
+    )
+    return redirect(url_for("tarefas"))
+
+
+@app.route("/tarefas/<int:id_tarefa>/concluir", methods=["POST"])
+def concluir_tarefa(id_tarefa):
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+
+    db.marcar_tarefa_concluida(id_tarefa)
+    return redirect(url_for("tarefas"))
+
+
+# ============================================================
+# DASHBOARD
+# ============================================================
+@app.route("/dashboard")
+def dashboard():
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+
+    lista_tarefas = db.listar_tarefas(usuario_logado())
+    df = pd.DataFrame(lista_tarefas)
+
+    grafico_html = None
+    if not df.empty:
+        contagem = df["status"].value_counts().reset_index()
+        contagem.columns = ["status", "quantidade"]
+        fig = px.bar(contagem, x="status", y="quantidade", title="Tarefas por status")
+        grafico_html = fig.to_html(full_html=False, include_plotlyjs="cdn")
+
+    return render_template(
+        "dashboard.html",
+        grafico_html=grafico_html,
+        pagina="dashboard",
+        titulo_pagina="Dashboard",
+        inicial_usuario=session.get("nome", "?")[0].upper(),
+    )
+
+
+if __name__ == "__main__":
+    app.run(debug=True)

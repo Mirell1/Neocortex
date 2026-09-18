@@ -1,0 +1,67 @@
+{% extends "base_app.html" %}
+{% block conteudo %}
+
+<div class="section-head">
+  <h2>Suas tarefas</h2>
+</div>
+
+<div class="card task-list">
+  {% for t in tarefas %}
+    <div class="task-row">
+      <form method="POST" action="{{ url_for('concluir_tarefa', id_tarefa=t.id_tarefa) }}" style="margin:0;">
+        <button type="submit" class="checkbox {{ 'done' if t.status == 'concluida' else '' }}"
+                style="border:none;background:none;cursor:pointer;">
+          {{ '✓' if t.status == 'concluida' else '' }}
+        </button>
+      </form>
+      <div class="task-main">
+        <div class="task-title {{ 'done' if t.status == 'concluida' else '' }}">{{ t.titulo }}</div>
+        <div class="task-time">{{ t.categoria }}</div>
+      </div>
+      <span class="badge">{{ t.status }}</span>
+    </div>
+  {% else %}
+    <p style="padding:20px;color:var(--text2);">Você ainda não tem tarefas. Clica no + pra criar a primeira.</p>
+  {% endfor %}
+</div>
+
+<!-- Botão flutuante que abre o modal de nova tarefa -->
+<button class="fab" onclick="document.getElementById('modal-tarefa').style.display='flex'">+</button>
+
+<div id="modal-tarefa" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <h2>Nova tarefa</h2>
+    <form method="POST" action="{{ url_for('criar_tarefa') }}">
+      <div class="field-block">
+        <label class="label">Título</label>
+        <input class="field" type="text" name="titulo" required>
+      </div>
+      <div class="field-block">
+        <label class="label">Início</label>
+        <input class="field" type="datetime-local" name="data_inicio" required>
+      </div>
+      <div class="field-block">
+        <label class="label">Fim</label>
+        <input class="field" type="datetime-local" name="data_fim" required>
+      </div>
+      <div class="field-block">
+        <label class="label">Categoria</label>
+        <select class="field" name="categoria">
+          <option value="trabalho">Trabalho</option>
+          <option value="estudo">Estudo</option>
+          <option value="hobby">Hobby</option>
+          <option value="pessoal">Pessoal</option>
+          <option value="saude">Saúde</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="auth-actions">
+        <button class="primary" type="submit">Salvar</button>
+        <button class="outline" type="button"
+                onclick="document.getElementById('modal-tarefa').style.display='none'">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

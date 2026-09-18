@@ -1,0 +1,16 @@
+{% extends "base_app.html" %}
+{% block conteudo %}
+
+<div class="section-head">
+  <h2>Dashboard de produtividade</h2>
+</div>
+
+<div class="card" style="padding:24px;">
+  {% if grafico_html %}
+    {{ grafico_html | safe }}
+  {% else %}
+    <p style="color:var(--text2);">Cadastre tarefas e conclua algumas pra ver seu dashboard aqui.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

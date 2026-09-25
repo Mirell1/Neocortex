@@ -1,16 +1,61 @@
-{% extends "base_app.html" %}
+{% extends "base_app_novo.html" %}
+
+{% block topbar_extra %}
+  <input id="dashboardSearchInput" class="search" placeholder="🔍 Buscar tarefa...">
+{% endblock %}
+
 {% block conteudo %}
+<div style="padding:32px;display:flex;flex-direction:column;gap:24px;">
+  <div style="border-radius:20px;overflow:hidden;background:linear-gradient(155deg, #01004E 0%, #2563EB 55%, #7C3AED 100%);padding:32px;position:relative;">
+    <div style="position:absolute;top:-40%;right:-10%;width:300px;height:300px;border-radius:50%;background:rgba(255,255,255,0.06);pointer-events:none;"></div>
+    <div style="background:rgba(255,255,255,0.1);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.18);border-radius:16px;padding:28px;position:relative;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+        <div>
+          <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:1px;">Progresso de hoje</p>
+          <h2 style="margin:0;font-size:32px;font-weight:800;color:white;letter-spacing:-0.5px;">{{ concluidas }} <span style="font-size:18px;font-weight:600;opacity:0.7;">de {{ total }}</span></h2>
+        </div>
+        <div style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:white;">{{ pct }}%</div>
+      </div>
+      <div style="height:8px;border-radius:4px;background:rgba(255,255,255,0.2);margin-bottom:16px;">
+        <div style="height:100%;border-radius:4px;background:linear-gradient(90deg, #A78BFA, white);width:{{ pct }}%;"></div>
+      </div>
+      <p style="margin:0;font-size:13px;font-weight:600;color:rgba(255,255,255,0.8);">Você já completou {{ concluidas }} tarefas hoje.</p>
+    </div>
+  </div>
 
-<div class="section-head">
-  <h2>Dashboard de produtividade</h2>
+  <div class="nc-card" style="overflow:hidden;">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--nc-border);display:flex;justify-content:space-between;align-items:center;">
+      <h3 style="margin:0;font-size:16px;font-weight:800;color:var(--nc-text);letter-spacing:-0.2px;">Tarefas de hoje</h3>
+      <span style="font-size:13px;font-weight:600;color:var(--nc-text2);">{{ hoje_formatado }}</span>
+    </div>
+    <div id="listaTarefasHoje">
+      {% for t in tarefas %}
+        <div class="linha-tarefa" data-titulo="{{ t.titulo|lower }}" style="display:flex;align-items:center;gap:16px;padding:16px 24px;{{ 'border-bottom:1px solid var(--nc-border);' if not loop.last else '' }}">
+          <form method="POST"
+                action="{{ url_for('desfazer_tarefa', id_tarefa=t.id_tarefa) if t.status == 'concluida' else url_for('concluir_tarefa', id_tarefa=t.id_tarefa) }}"
+                style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" style="width:20px;height:20px;border-radius:6px;border:2px solid {{ '#22C55E' if t.status == 'concluida' else 'var(--nc-border)' }};background:{{ '#22C55E' if t.status == 'concluida' else 'transparent' }};display:flex;align-items:center;justify-content:center;flex-shrink:0;color:white;font-size:11px;font-weight:800;cursor:pointer;">{{ '✓' if t.status == 'concluida' else '' }}</button>
+          </form>
+          <div style="flex:1;min-width:0;">
+            <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:var(--nc-text);{{ 'text-decoration:line-through;opacity:0.5;' if t.status == 'concluida' else '' }}">{{ t.titulo }}</p>
+            <p style="margin:0;font-size:12px;font-weight:500;color:var(--nc-text2);">{{ t.categoria }}</p>
+          </div>
+          <span class="badge" style="background:#2563EB18;color:#2563EB;">{{ t.status }}</span>
+        </div>
+      {% else %}
+        <p style="padding:24px;text-align:center;font-size:13px;font-weight:600;color:var(--nc-text2);">Nenhuma tarefa pra hoje.</p>
+      {% endfor %}
+    </div>
+  </div>
 </div>
 
-<div class="card" style="padding:24px;">
-  {% if grafico_html %}
-    {{ grafico_html | safe }}
-  {% else %}
-    <p style="color:var(--text2);">Cadastre tarefas e conclua algumas pra ver seu dashboard aqui.</p>
-  {% endif %}
-</div>
-
+<script>
+  document.getElementById('dashboardSearchInput')?.addEventListener('input', function (e) {
+    const termo = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#listaTarefasHoje .linha-tarefa').forEach(function (linha) {
+      linha.style.display = linha.dataset.titulo.includes(termo) ? 'flex' : 'none';
+    });
+  });
+</script>
 {% endblock %}

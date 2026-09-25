@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEOCORTEX — Seu nome</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+</head>
+<body>
+<div style="display:flex;flex-direction:column;height:100vh;">
+    <div class="step-header">
+      <div class="blob blob1"></div><div class="blob blob2"></div>
+      <img class="logo-mark" src="{{ url_for('static', filename='logo.png') }}" alt="NEOCORTEX">
+      <div class="step-tag">Etapa 3 de 4</div>
+    </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px 24px;">
+    <div class="nc-card" style="width:100%;max-width:440px;padding:40px;">
+      <h2 style="margin:0 0 6px;font-size:24px;font-weight:800;color:var(--nc-text);letter-spacing:-0.4px;">Como quer ser chamado?</h2>
+      <p style="margin:0 0 32px;font-size:14px;font-weight:500;color:var(--nc-text2);">Usaremos seu nome para personalizar a experiência.</p>
+      <form method="POST" action="{{ url_for('cadastro_nome') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="nc-label">Seu nome</label>
+        <input name="nome" type="text" placeholder="ex: Ana, Carlos, Mari..." class="nc-input" autofocus required>
+        {% if erro %}
+          <p style="margin:10px 0 0;font-size:12px;font-weight:600;color:#EF4444;">{{ erro }}</p>
+        {% endif %}
+        <button type="submit" class="btn-primary" style="width:100%;height:50px;margin-top:32px;">Próximo</button>
+      </form>
+    </div>
+  </div>
+</div>
+</body>
+</html>

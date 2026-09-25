@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEOCORTEX — Criar conta</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+</head>
+<body>
+<div style="display:flex;flex-direction:column;height:100vh;">
+    <div class="step-header">
+      <div class="blob blob1"></div><div class="blob blob2"></div>
+      <img class="logo-mark" src="{{ url_for('static', filename='logo.png') }}" alt="NEOCORTEX">
+      <div class="step-tag">Etapa 2 de 4</div>
+    </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px 24px;overflow-y:auto;">
+    <div class="nc-card" style="width:100%;max-width:480px;padding:40px;">
+      <h2 style="margin:0 0 6px;font-size:24px;font-weight:800;color:var(--nc-text);letter-spacing:-0.4px;">Crie sua conta</h2>
+      <p style="margin:0 0 32px;font-size:14px;font-weight:500;color:var(--nc-text2);">Seus dados ficam seguros, prometemos.</p>
+      <form method="POST" action="{{ url_for('cadastro_conta') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div style="display:flex;flex-direction:column;gap:20px;">
+          <div><label class="nc-label">E-mail</label><input name="email" type="email" placeholder="seu@email.com" class="nc-input" required></div>
+          <div><label class="nc-label">Senha</label><input id="suPassword" name="senha" type="password" placeholder="mínimo 6 caracteres" class="nc-input" minlength="6" required></div>
+          <div>
+            <label class="nc-label">Confirmar senha</label>
+            <input id="suConfirm" name="confirmar" type="password" placeholder="repita a senha" class="nc-input" required>
+            <p id="mismatchMsg" class="hidden" style="margin:6px 0 0;font-size:12px;font-weight:600;color:#EF4444;">As senhas não coincidem</p>
+          </div>
+        </div>
+        {% if erro %}
+          <p style="margin:10px 0 0;font-size:12px;font-weight:600;color:#EF4444;">{{ erro }}</p>
+        {% endif %}
+        <button type="submit" class="btn-primary" style="width:100%;height:50px;margin-top:32px;">Próximo</button>
+      </form>
+    </div>
+  </div>
+</div>
+  <script>
+    const pass = document.getElementById('suPassword');
+    const conf = document.getElementById('suConfirm');
+    const msg = document.getElementById('mismatchMsg');
+    function checkMismatch() {
+      const mismatch = conf.value && conf.value !== pass.value;
+      conf.classList.toggle('error', !!mismatch);
+      msg.classList.toggle('hidden', !mismatch);
+    }
+    pass.addEventListener('input', checkMismatch);
+    conf.addEventListener('input', checkMismatch);
+  </script>
+</body>
+</html>

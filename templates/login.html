@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEOCORTEX</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+</head>
+<body>
+<div style="display:flex;height:100vh;">
+  <div class="auth-left-panel">
+    <div class="blob blob1"></div><div class="blob blob2"></div>
+    <div class="brand-row">
+      <img class="logo-mark" src="{{ url_for('static', filename='logo.png') }}" alt="NEOCORTEX">
+      <span class="brand-name">NEOCORTEX</span>
+    </div>
+    <div class="brand-mid">
+      <div class="eyebrow">Seu segundo córtex</div>
+      <h1>Respire. Vamos organizar seu dia juntos.</h1>
+      <p class="sub">O NEOCORTEX aprende sua rotina e transforma procrastinação em progresso — sem cobrança, sem culpa.</p>
+    </div>
+  </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;background:var(--nc-surface);">
+    <div style="width:100%;max-width:400px;">
+      <h2 style="margin:0 0 8px;font-size:26px;font-weight:800;color:var(--nc-text);letter-spacing:-0.4px;">Bom ter você de volta</h2>
+      <p style="margin:0 0 36px;font-size:15px;font-weight:500;color:var(--nc-text2);">Entre na sua conta para continuar sua rotina.</p>
+      <form method="POST" action="{{ url_for('tela_login') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div>
+            <label class="nc-label">E-mail</label>
+            <input type="email" name="email" placeholder="seu@email.com" class="nc-input" required>
+          </div>
+          <div>
+            <label class="nc-label">Senha</label>
+            <input type="password" name="senha" placeholder="••••••••" class="nc-input" required>
+          </div>
+        </div>
+        {% if erro %}
+          <p style="margin:10px 0 0;font-size:12px;font-weight:600;color:#EF4444;">{{ erro }}</p>
+        {% endif %}
+        <div style="display:flex;flex-direction:column;gap:12px;margin-top:22px;">
+          <button type="submit" class="btn-primary" style="height:50px;">Entrar no NEOCORTEX</button>
+          <a href="{{ url_for('cadastro_termos') }}" class="btn-outline" style="height:50px;display:flex;align-items:center;justify-content:center;text-decoration:none;">Criar conta gratuita</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,112 @@
+{% extends "base_app_novo.html" %}
+{% block conteudo %}
+<div style="padding:32px;">
+  {% if erro %}
+  <p style="margin:0 0 16px;font-size:12px;font-weight:600;color:#EF4444;">{{ erro }}</p>
+  {% endif %}
+  <div class="nc-card" style="overflow:hidden;">
+    {% for r in rotina %}
+    <div
+      style="display:flex;align-items:center;gap:16px;padding:16px 24px;{{ 'border-bottom:1px solid var(--nc-border);' if not loop.last else '' }}">
+      <div style="flex:1;min-width:0;">
+        <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:var(--nc-text);">{{ r.descricao }}</p>
+        <p style="margin:0;font-size:12px;font-weight:500;color:var(--nc-text2);">{{ r.dias_label }} · {{ r.hora_inicio
+          }} às {{ r.hora_fim }}</p>
+      </div>
+      <form method="POST" action="{{ url_for('excluir_grupo_rotina') }}" style="margin:0;"
+        onsubmit="return confirm('Remover este item de todos os dias em que ele se repete?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% for id in r.ids %}
+        <input type="hidden" name="id_rotina" value="{{ id }}">
+        {% endfor %}
+        <button type="submit"
+          style="background:none;border:none;color:var(--nc-text2);font-size:16px;cursor:pointer;">✕</button>
+      </form>
+    </div>
+    {% else %}
+    <p style="padding:24px;text-align:center;font-size:13px;font-weight:600;color:var(--nc-text2);">Você ainda não tem
+      itens de rotina fixa.</p>
+    {% endfor %}
+  </div>
+
+  <button class="fab" onclick="document.getElementById('modalRotina').classList.remove('hidden')">+</button>
+
+  <div id="modalRotina" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3 style="margin:0 0 18px;font-size:18px;font-weight:800;color:var(--nc-text);">Novo item de rotina</h3>
+      <form method="POST" action="{{ url_for('adicionar_rotina_rota') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div style="margin-bottom:16px;">
+          <label class="nc-label">Dias da semana</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;" data-multi="dia_semana">
+            <button type="button" class="chip" data-value="segunda">Seg</button>
+            <button type="button" class="chip" data-value="terca">Ter</button>
+            <button type="button" class="chip" data-value="quarta">Qua</button>
+            <button type="button" class="chip" data-value="quinta">Qui</button>
+            <button type="button" class="chip" data-value="sexta">Sex</button>
+            <button type="button" class="chip" data-value="sabado">Sáb</button>
+            <button type="button" class="chip" data-value="domingo">Dom</button>
+          </div>
+          <p style="margin:6px 0 0;font-size:12px;color:var(--nc-text2);">Pode selecionar mais de um dia</p>
+        </div>
+        <div style="margin-bottom:16px;"><label class="nc-label">Descrição</label><input class="nc-input" type="text"
+            name="descricao" placeholder="Ex: Academia" required></div>
+        <div style="margin-bottom:16px;">
+          <label class="nc-label">Início</label>
+          <div style="display:flex;gap:8px;">
+            <select class="nc-input" name="hora_inicio_h" required>
+              {% for h in range(24) %}<option value="{{ '%02d'|format(h) }}">{{ '%02d'|format(h) }}h</option>{% endfor
+              %}
+            </select>
+            <select class="nc-input" name="hora_inicio_m" required>
+              <option value="00">00</option>
+              <option value="15">15</option>
+              <option value="30">30</option>
+              <option value="45">45</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label class="nc-label">Fim</label>
+          <div style="display:flex;gap:8px;">
+            <select class="nc-input" name="hora_fim_h" required>
+              {% for h in range(24) %}<option value="{{ '%02d'|format(h) }}">{{ '%02d'|format(h) }}h</option>{% endfor
+              %}
+            </select>
+            <select class="nc-input" name="hora_fim_m" required>
+              <option value="00">00</option>
+              <option value="15">15</option>
+              <option value="30">30</option>
+              <option value="45">45</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Salvar</button>
+        <button type="button" class="btn-outline" style="width:100%;height:48px;"
+          onclick="document.getElementById('modalRotina').classList.add('hidden')">Cancelar</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+  document.querySelectorAll('[data-multi]').forEach(function (grupo) {
+    const nomeCampo = grupo.dataset.multi;
+    grupo.querySelectorAll('.chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        chip.classList.toggle('active');
+        const valor = chip.dataset.value;
+        const existente = grupo.querySelector(`input[value="${valor}"]`);
+        if (chip.classList.contains('active') && !existente) {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = nomeCampo;
+          input.value = valor;
+          grupo.appendChild(input);
+        } else if (!chip.classList.contains('active') && existente) {
+          existente.remove();
+        }
+      });
+    });
+  });
+</script>
+{% endblock %}

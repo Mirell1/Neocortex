@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEOCORTEX — Termos e Condições</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+</head>
+<body>
+<div style="display:flex;flex-direction:column;height:100vh;">
+    <div class="step-header">
+      <div class="blob blob1"></div><div class="blob blob2"></div>
+      <img class="logo-mark" src="{{ url_for('static', filename='logo.png') }}" alt="NEOCORTEX">
+      <div class="step-tag">Etapa 1 de 4</div>
+    </div>
+  <div style="flex:1;display:flex;align-items:flex-start;justify-content:center;padding:40px 24px;overflow-y:auto;">
+    <div class="nc-card" style="width:100%;max-width:600px;padding:40px;">
+      <h2 style="margin:0 0 8px;font-size:24px;font-weight:800;color:var(--nc-text);letter-spacing:-0.4px;">Termos e Condições</h2>
+      <p style="margin:0 0 24px;font-size:14px;font-weight:500;color:var(--nc-text2);">Leia com atenção antes de continuar.</p>
+      <div style="height:280px;overflow-y:auto;padding:20px;border-radius:10px;border:1px solid var(--nc-border);background:var(--nc-bg);font-size:13px;font-weight:500;color:var(--nc-text2);line-height:1.75;white-space:pre-wrap;margin-bottom:24px;">Termos e Condições de Uso — NEOCORTEX
+
+1. Aceitação dos Termos
+Ao utilizar o NEOCORTEX, você concorda com estes termos de uso.
+
+2. Uso do Serviço
+O NEOCORTEX é um aplicativo de organização de rotina. Você concorda em usar o serviço apenas para fins legais.
+
+3. Conta do Usuário
+Você é responsável por manter a confidencialidade de sua senha.
+
+4. Privacidade e Dados
+Coletamos apenas os dados necessários para oferecer o serviço.
+
+5. Legislação Aplicável
+Estes termos são regidos pela legislação brasileira.</div>
+      <label style="display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:28px;">
+        <input id="termsCheck" type="checkbox" style="width:18px;height:18px;cursor:pointer;accent-color:#2563EB;">
+        <span style="font-size:14px;font-weight:600;color:var(--nc-text);">Li e aceito os termos e condições</span>
+      </label>
+      <button id="btnTermsContinue" class="btn-primary" style="width:100%;height:50px;" disabled>Continuar</button>
+    </div>
+  </div>
+</div>
+  <script>
+    const chk = document.getElementById('termsCheck');
+    const btn = document.getElementById('btnTermsContinue');
+    chk.addEventListener('change', () => { btn.disabled = !chk.checked; });
+    btn.addEventListener('click', () => {
+      if (chk.checked) window.location.href = "{{ url_for('cadastro_conta') }}";
+    });
+  </script>
+</body>
+</html>

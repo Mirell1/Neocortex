@@ -1,0 +1,95 @@
+{% extends "base_app_novo.html" %}
+{% block conteudo %}
+<div style="padding:32px;display:flex;flex-direction:column;align-items:center;">
+  <div style="width:100%;max-width:640px;display:flex;flex-direction:column;gap:28px;">
+
+    {% if request.args.get('erro') == 'senha_atual' %}
+      <p style="color:#EF4444;font-size:13px;font-weight:700;">Senha atual incorreta.</p>
+    {% elif request.args.get('erro') == 'senha_curta' %}
+      <p style="color:#EF4444;font-size:13px;font-weight:700;">A nova senha precisa ter pelo menos 6 caracteres.</p>
+    {% elif request.args.get('sucesso') == 'senha' %}
+      <p style="color:#22C55E;font-size:13px;font-weight:700;">Senha alterada com sucesso!</p>
+    {% endif %}
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Perfil</h3>
+      <div style="display:flex;align-items:center;gap:20px;">
+        <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg, #2563EB, #7C3AED);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:white;flex-shrink:0;">{{ inicial_usuario }}</div>
+        <div style="flex:1;">
+          <p style="margin:0;font-size:18px;font-weight:800;color:var(--nc-text);">{{ session.nome }}</p>
+        </div>
+        <button id="btnEditarNome" class="btn-ghost-sm">Editar nome</button>
+      </div>
+    </div>
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Aparência</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div><p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Modo escuro</p></div>
+        <div class="nc-toggle" id="toggleDark"><div class="knob"></div></div>
+      </div>
+    </div>
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Conta</h3>
+      <div class="settings-row-click" id="rowSenha" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+        <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Alterar senha</p>
+        <span style="color:var(--nc-text2);">›</span>
+      </div>
+      <div style="height:1px;background:var(--nc-border);"></div>
+      <a href="{{ url_for('exportar_dados') }}" style="text-decoration:none;">
+        <div class="settings-row-click" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Exportar meus dados</p>
+          <span style="color:var(--nc-text2);">›</span>
+        </div>
+      </a>
+    </div>
+
+    <p style="text-align:center;font-size:12px;font-weight:500;color:var(--nc-text2);">NEOCORTEX</p>
+  </div>
+</div>
+
+<form id="formEditarNome" method="POST" action="{{ url_for('atualizar_perfil') }}" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="nome" id="inputNomeNovo">
+</form>
+
+<form id="formTrocarSenha" method="POST" action="{{ url_for('trocar_senha_rota') }}" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="senha_atual" id="inputSenhaAtual">
+  <input type="hidden" name="nova_senha" id="inputNovaSenha">
+</form>
+
+<script>
+  document.getElementById('btnEditarNome').addEventListener('click', function () {
+    const nome = prompt('Novo nome:', "{{ session.nome }}");
+    if (nome && nome.trim()) {
+      document.getElementById('inputNomeNovo').value = nome.trim();
+      document.getElementById('formEditarNome').submit();
+    }
+  });
+
+  document.getElementById('rowSenha').addEventListener('click', function () {
+    const atual = prompt('Digite sua senha atual:');
+    if (atual === null) return;
+    const nova = prompt('Digite a nova senha (mínimo 6 caracteres):');
+    if (nova === null) return;
+    document.getElementById('inputSenhaAtual').value = atual;
+    document.getElementById('inputNovaSenha').value = nova;
+    document.getElementById('formTrocarSenha').submit();
+  });
+
+  // Modo escuro — só nesta página por enquanto (preferência local do navegador)
+  const toggle = document.getElementById('toggleDark');
+  const DARK_KEY = 'neocortex_dark';
+  if (localStorage.getItem(DARK_KEY) === 'true') {
+    document.documentElement.classList.add('dark');
+    toggle.classList.add('on');
+  }
+  toggle.addEventListener('click', function () {
+    const ligado = document.documentElement.classList.toggle('dark');
+    toggle.classList.toggle('on', ligado);
+    localStorage.setItem(DARK_KEY, ligado);
+  });
+</script>
+{% endblock %}

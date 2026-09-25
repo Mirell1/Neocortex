@@ -23,6 +23,7 @@ import psycopg2.extras
 import bcrypt
 from contextlib import contextmanager
 from dotenv import load_dotenv
+from psycopg2 import pool
 
 # Lê o arquivo .env (que fica na mesma pasta) e carrega as variáveis
 # de ambiente automaticamente, sem precisar fazer nada manual.
@@ -37,7 +38,12 @@ CONFIG_BANCO = {
     "user": os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD", ""),
 }
-
+POOL_CONEXOES = pool.SimpleConnectionPool(
+    1, 10,
+    **CONFIG_BANCO,
+    cursor_factory=psycopg2.extras.RealDictCursor,
+    client_encoding="UTF8",
+)
 
 # ============================================================
 # CONEXÃO
@@ -46,14 +52,14 @@ CONFIG_BANCO = {
 @contextmanager
 def conectar():
     """
-    Abre uma conexão com o Postgres e devolve um cursor que já
-    retorna cada linha como dicionário (RealDictCursor), equivalente
-    ao sqlite3.Row da versão SQLite.
+    Pega uma conexão emprestada do pool (em vez de abrir uma nova toda
+    vez), devolve um cursor que já retorna cada linha como dicionário.
 
     Mesma lógica de antes: commit automático se der tudo certo,
-    rollback se der erro, e fecha a conexão sempre no final.
+    rollback se der erro — só que agora a conexão volta pro pool no
+    final, em vez de ser fechada de verdade.
     """
-    conn = psycopg2.connect(**CONFIG_BANCO, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = POOL_CONEXOES.getconn()
     try:
         yield conn
         conn.commit()
@@ -61,7 +67,7 @@ def conectar():
         conn.rollback()
         raise
     finally:
-        conn.close()
+        POOL_CONEXOES.putconn(conn)
 
 
 def criar_tabelas():
@@ -127,15 +133,18 @@ def buscar_usuario(id_usuario):
     return dict(linha) if linha else None
 
 
+COLUNAS_USUARIO_PERMITIDAS = {"nome"}
+
 def atualizar_usuario(id_usuario, **campos):
-    campos.pop("senha", None)
+    campos = {k: v for k, v in campos.items() if k in COLUNAS_USUARIO_PERMITIDAS}
     if not campos:
-        return
+        return 0
     colunas = ", ".join(f"{chave} = %s" for chave in campos)
     valores = list(campos.values()) + [id_usuario]
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(f"UPDATE usuarios SET {colunas} WHERE id_usuario = %s", valores)
+            return cur.rowcount
 
 
 def trocar_senha(id_usuario, nova_senha):
@@ -261,31 +270,48 @@ def listar_tarefas(id_usuario, data_inicio=None, data_fim=None, status=None):
     return [dict(l) for l in linhas]
 
 
-def buscar_tarefa(id_tarefa):
+def buscar_tarefa(id_tarefa, id_usuario):
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM tarefas WHERE id_tarefa = %s", (id_tarefa,))
+            cur.execute(
+                "SELECT * FROM tarefas WHERE id_tarefa = %s AND id_usuario = %s",
+                (id_tarefa, id_usuario),
+            )
             linha = cur.fetchone()
     return dict(linha) if linha else None
 
 
-def atualizar_tarefa(id_tarefa, **campos):
+COLUNAS_TAREFA_PERMITIDAS = {
+    "titulo", "descricao", "categoria", "data_inicio",
+    "data_fim", "status", "cor",
+}
+
+def atualizar_tarefa(id_tarefa, id_usuario, **campos):
+    campos = {k: v for k, v in campos.items() if k in COLUNAS_TAREFA_PERMITIDAS}
     if not campos:
-        return
+        return 0
     colunas = ", ".join(f"{chave} = %s" for chave in campos)
-    valores = list(campos.values()) + [id_tarefa]
+    valores = list(campos.values()) + [id_tarefa, id_usuario]
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"UPDATE tarefas SET {colunas} WHERE id_tarefa = %s", valores)
+            cur.execute(
+                f"UPDATE tarefas SET {colunas} WHERE id_tarefa = %s AND id_usuario = %s",
+                valores,
+            )
+            return cur.rowcount
 
 
-def deletar_tarefa(id_tarefa):
+def deletar_tarefa(id_tarefa, id_usuario):
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM tarefas WHERE id_tarefa = %s", (id_tarefa,))
+            cur.execute(
+                "DELETE FROM tarefas WHERE id_tarefa = %s AND id_usuario = %s",
+                (id_tarefa, id_usuario),
+            )
+            return cur.rowcount
 
 
-def marcar_tarefa_concluida(id_tarefa):
+def marcar_tarefa_concluida(id_tarefa, id_usuario):
     """
     Marca a tarefa como concluída E registra o momento exato em que
     isso aconteceu (CURRENT_TIMESTAMP), tudo numa única chamada —
@@ -299,13 +325,15 @@ def marcar_tarefa_concluida(id_tarefa):
                 """
                 UPDATE tarefas
                 SET status = 'concluida', concluido_em = CURRENT_TIMESTAMP
-                WHERE id_tarefa = %s
+                WHERE id_tarefa = %s AND id_usuario = %s
                 """,
-                (id_tarefa,),
+                (id_tarefa, id_usuario),
             )
+            return cur.rowcount
 
 
-def desfazer_conclusao_tarefa(id_tarefa):
+
+def desfazer_conclusao_tarefa(id_tarefa, id_usuario):
     """Volta a tarefa pro status pendente e limpa a data de conclusão (caso o usuário desmarque por engano)."""
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -313,10 +341,11 @@ def desfazer_conclusao_tarefa(id_tarefa):
                 """
                 UPDATE tarefas
                 SET status = 'pendente', concluido_em = NULL
-                WHERE id_tarefa = %s
+                WHERE id_tarefa = %s AND id_usuario = %s
                 """,
-                (id_tarefa,),
+                (id_tarefa, id_usuario),
             )
+            return cur.rowcount
 
 
 # ============================================================
@@ -352,20 +381,30 @@ def listar_rotina(id_usuario, dia_semana=None):
     return [dict(l) for l in linhas]
 
 
-def atualizar_rotina(id_rotina, **campos):
+COLUNAS_ROTINA_PERMITIDAS = {"dia_semana", "descricao", "hora_inicio", "hora_fim"}
+
+def atualizar_rotina(id_rotina, id_usuario, **campos):
+    campos = {k: v for k, v in campos.items() if k in COLUNAS_ROTINA_PERMITIDAS}
     if not campos:
-        return
+        return 0
     colunas = ", ".join(f"{chave} = %s" for chave in campos)
-    valores = list(campos.values()) + [id_rotina]
+    valores = list(campos.values()) + [id_rotina, id_usuario]
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"UPDATE rotina_fixa SET {colunas} WHERE id_rotina = %s", valores)
+            cur.execute(
+                f"UPDATE rotina_fixa SET {colunas} WHERE id_rotina = %s AND id_usuario = %s",
+                valores,
+            )
+            return cur.rowcount
 
-
-def deletar_rotina(id_rotina):
+def deletar_rotina(id_rotina, id_usuario):
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM rotina_fixa WHERE id_rotina = %s", (id_rotina,))
+            cur.execute(
+                "DELETE FROM rotina_fixa WHERE id_rotina = %s AND id_usuario = %s",
+                (id_rotina, id_usuario),
+            )
+            return cur.rowcount
 
 
 # ============================================================

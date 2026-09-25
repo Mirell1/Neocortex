@@ -1,0 +1,44 @@
+{% extends "base_app_novo.html" %}
+{% block conteudo %}
+<div style="padding:32px;display:flex;flex-direction:column;gap:24px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div style="display:inline-flex;background:var(--nc-surface);border:1px solid var(--nc-border);border-radius:10px;padding:4px;">
+      <button type="button" style="padding:7px 20px;border-radius:7px;border:none;background:linear-gradient(135deg, #2563EB, #7C3AED);color:white;font-size:13px;font-weight:700;">Mês</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <a href="{{ url_for('calendario', ano=ano_anterior, mes=mes_anterior) }}" class="btn-ghost-sm" style="padding:6px 12px;text-decoration:none;">‹</a>
+      <span style="font-size:15px;font-weight:800;color:var(--nc-text);min-width:160px;text-align:center;">{{ mes_nome }} {{ ano }}</span>
+      <a href="{{ url_for('calendario', ano=ano_seguinte, mes=mes_seguinte) }}" class="btn-ghost-sm" style="padding:6px 12px;text-decoration:none;">›</a>
+    </div>
+  </div>
+
+  <div class="nc-card" style="overflow:hidden;">
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--nc-border);">
+      {% for nome_dia in ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'] %}
+        <div style="padding:12px 8px;text-align:center;font-size:12px;font-weight:700;color:var(--nc-text2);text-transform:uppercase;letter-spacing:0.5px;background:var(--nc-bg);">{{ nome_dia }}</div>
+      {% endfor %}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);">
+      {% for semana in semanas %}
+        {% for dia in semana %}
+          {% set e_hoje = (dia == hoje_dia and mes == hoje_mes and ano == hoje_ano) %}
+          <div style="min-height:110px;padding:10px 8px;border-right:1px solid var(--nc-border);border-top:1px solid var(--nc-border);background:{{ 'rgba(37,99,235,0.04)' if e_hoje else 'transparent' }};">
+            {% if dia != 0 %}
+              <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;background:{{ '#2563EB' if e_hoje else 'transparent' }};font-size:13px;font-weight:800;color:{{ 'white' if e_hoje else 'var(--nc-text)' }};">{{ dia }}</div>
+              <div style="display:flex;flex-direction:column;gap:3px;">
+                {% set eventos = eventos_por_dia.get(dia, []) %}
+                {% for ev in eventos[:2] %}
+                  <div style="padding:2px 6px;border-radius:4px;background:{{ ev.cor }}22;color:{{ ev.cor }};font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ ev.label }}</div>
+                {% endfor %}
+                {% if eventos|length > 2 %}
+                  <span style="font-size:10px;font-weight:600;color:var(--nc-text2);">+{{ eventos|length - 2 }}</span>
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

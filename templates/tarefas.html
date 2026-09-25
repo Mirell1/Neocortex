@@ -1,67 +1,134 @@
-{% extends "base_app.html" %}
+{% extends "base_app_novo.html" %}
 {% block conteudo %}
+<div style="padding:32px;">
+  {% if erro %}
+    <p style="margin:0 0 16px;font-size:12px;font-weight:600;color:#EF4444;">{{ erro }}</p>
+  {% endif %}
 
-<div class="section-head">
-  <h2>Suas tarefas</h2>
-</div>
+  <div style="display:inline-flex;background:var(--nc-surface);border:1px solid var(--nc-border);border-radius:10px;padding:4px;margin-bottom:16px;">
+    <a href="{{ url_for('tarefas', filtro='hoje') }}" style="padding:7px 18px;border-radius:7px;text-decoration:none;font-size:13px;font-weight:700;{{ 'background:linear-gradient(135deg, #2563EB, #7C3AED);color:white;' if filtro == 'hoje' else 'color:var(--nc-text2);' }}">Hoje</a>
+    <a href="{{ url_for('tarefas', filtro='proximas') }}" style="padding:7px 18px;border-radius:7px;text-decoration:none;font-size:13px;font-weight:700;{{ 'background:linear-gradient(135deg, #2563EB, #7C3AED);color:white;' if filtro == 'proximas' else 'color:var(--nc-text2);' }}">Próximas</a>
+    <a href="{{ url_for('tarefas', filtro='todas') }}" style="padding:7px 18px;border-radius:7px;text-decoration:none;font-size:13px;font-weight:700;{{ 'background:linear-gradient(135deg, #2563EB, #7C3AED);color:white;' if filtro == 'todas' else 'color:var(--nc-text2);' }}">Todas</a>
+  </div>
 
-<div class="card task-list">
-  {% for t in tarefas %}
-    <div class="task-row">
-      <form method="POST" action="{{ url_for('concluir_tarefa', id_tarefa=t.id_tarefa) }}" style="margin:0;">
-        <button type="submit" class="checkbox {{ 'done' if t.status == 'concluida' else '' }}"
-                style="border:none;background:none;cursor:pointer;">
-          {{ '✓' if t.status == 'concluida' else '' }}
-        </button>
-      </form>
-      <div class="task-main">
-        <div class="task-title {{ 'done' if t.status == 'concluida' else '' }}">{{ t.titulo }}</div>
-        <div class="task-time">{{ t.categoria }}</div>
+  <div class="nc-card" style="overflow:hidden;">
+    {% for t in tarefas %}
+      <div style="display:flex;align-items:center;gap:16px;padding:16px 24px;{{ 'border-bottom:1px solid var(--nc-border);' if not loop.last else '' }}">
+        <form method="POST"
+              action="{{ url_for('desfazer_tarefa', id_tarefa=t.id_tarefa) if t.status == 'concluida' else url_for('concluir_tarefa', id_tarefa=t.id_tarefa) }}"
+              style="margin:0;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" style="width:20px;height:20px;border-radius:6px;border:2px solid {{ '#22C55E' if t.status == 'concluida' else 'var(--nc-border)' }};background:{{ '#22C55E' if t.status == 'concluida' else 'transparent' }};display:flex;align-items:center;justify-content:center;flex-shrink:0;color:white;font-size:11px;font-weight:800;cursor:pointer;">{{ '✓' if t.status == 'concluida' else '' }}</button>
+        </form>
+        <div style="flex:1;min-width:0;">
+          <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:var(--nc-text);{{ 'text-decoration:line-through;opacity:0.5;' if t.status == 'concluida' else '' }}">{{ t.titulo }}</p>
+          <p style="margin:0;font-size:12px;font-weight:500;color:var(--nc-text2);">{{ t.data_inicio.strftime('%d/%m') }} · {{ t.categoria }}</p>
+        </div>
+        <span class="badge" style="background:#2563EB18;color:#2563EB;">{{ t.status }}</span>
+        <button type="button" onclick="document.getElementById('modalEditar{{ t.id_tarefa }}').classList.remove('hidden')" style="background:none;border:none;color:var(--nc-text2);font-size:15px;cursor:pointer;">✎</button>
+        <form method="POST" action="{{ url_for('excluir_tarefa', id_tarefa=t.id_tarefa) }}" style="margin:0;" onsubmit="return confirm('Excluir esta tarefa?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" style="background:none;border:none;color:var(--nc-text2);font-size:15px;cursor:pointer;">✕</button>
+        </form>
       </div>
-      <span class="badge">{{ t.status }}</span>
+    {% else %}
+      <p style="padding:24px;text-align:center;font-size:13px;font-weight:600;color:var(--nc-text2);">Nenhuma tarefa nessa visão. Clica no + pra criar uma.</p>
+    {% endfor %}
+  </div>
+
+  <button class="fab" onclick="document.getElementById('modalTarefa').classList.remove('hidden')">+</button>
+
+  <div id="modalTarefa" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3 style="margin:0 0 18px;font-size:18px;font-weight:800;color:var(--nc-text);">Nova tarefa</h3>
+      <form method="POST" action="{{ url_for('criar_tarefa') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div style="margin-bottom:16px;"><label class="nc-label">Título</label><input class="nc-input" type="text" name="titulo" required></div>
+        <div style="margin-bottom:16px;">
+          <label class="nc-label">Início</label>
+          <div style="display:flex;gap:8px;">
+            <input class="nc-input" type="date" name="data_inicio_data" required style="flex:1;">
+            <select class="nc-input" name="data_inicio_h" required style="width:80px;">
+              {% for h in range(24) %}<option value="{{ '%02d'|format(h) }}">{{ '%02d'|format(h) }}h</option>{% endfor %}
+            </select>
+            <select class="nc-input" name="data_inicio_m" required style="width:80px;">
+              <option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label class="nc-label">Fim</label>
+          <div style="display:flex;gap:8px;">
+            <input class="nc-input" type="date" name="data_fim_data" required style="flex:1;">
+            <select class="nc-input" name="data_fim_h" required style="width:80px;">
+              {% for h in range(24) %}<option value="{{ '%02d'|format(h) }}">{{ '%02d'|format(h) }}h</option>{% endfor %}
+            </select>
+            <select class="nc-input" name="data_fim_m" required style="width:80px;">
+              <option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label class="nc-label">Categoria</label>
+          <select class="nc-input" name="categoria">
+            <option value="trabalho">Trabalho</option>
+            <option value="estudo">Estudo</option>
+            <option value="hobby">Hobby</option>
+            <option value="pessoal">Pessoal</option>
+            <option value="saude">Saúde</option>
+            <option value="outro">Outro</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Salvar</button>
+        <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalTarefa').classList.add('hidden')">Cancelar</button>
+      </form>
     </div>
-  {% else %}
-    <p style="padding:20px;color:var(--text2);">Você ainda não tem tarefas. Clica no + pra criar a primeira.</p>
+  </div>
+
+  {% for t in tarefas %}
+    <div id="modalEditar{{ t.id_tarefa }}" class="modal-overlay hidden">
+      <div class="modal-box">
+        <h3 style="margin:0 0 18px;font-size:18px;font-weight:800;color:var(--nc-text);">Editar tarefa</h3>
+        <form method="POST" action="{{ url_for('editar_tarefa', id_tarefa=t.id_tarefa) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div style="margin-bottom:16px;"><label class="nc-label">Título</label><input class="nc-input" type="text" name="titulo" value="{{ t.titulo }}" required></div>
+          <div style="margin-bottom:16px;">
+            <label class="nc-label">Início</label>
+            <div style="display:flex;gap:8px;">
+              <input class="nc-input" type="date" name="data_inicio_data" value="{{ t.data_inicio.strftime('%Y-%m-%d') }}" required style="flex:1;">
+              <select class="nc-input" name="data_inicio_h" required style="width:80px;">
+                {% for h in range(24) %}<option value="{{ '%02d'|format(h) }}" {{ 'selected' if h == t.data_inicio.hour }}>{{ '%02d'|format(h) }}h</option>{% endfor %}
+              </select>
+              <select class="nc-input" name="data_inicio_m" required style="width:80px;">
+                {% for m in [0,15,30,45] %}<option value="{{ '%02d'|format(m) }}" {{ 'selected' if m == t.data_inicio.minute }}>{{ '%02d'|format(m) }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label class="nc-label">Fim</label>
+            <div style="display:flex;gap:8px;">
+              <input class="nc-input" type="date" name="data_fim_data" value="{{ t.data_fim.strftime('%Y-%m-%d') }}" required style="flex:1;">
+              <select class="nc-input" name="data_fim_h" required style="width:80px;">
+                {% for h in range(24) %}<option value="{{ '%02d'|format(h) }}" {{ 'selected' if h == t.data_fim.hour }}>{{ '%02d'|format(h) }}h</option>{% endfor %}
+              </select>
+              <select class="nc-input" name="data_fim_m" required style="width:80px;">
+                {% for m in [0,15,30,45] %}<option value="{{ '%02d'|format(m) }}" {{ 'selected' if m == t.data_fim.minute }}>{{ '%02d'|format(m) }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label class="nc-label">Categoria</label>
+            <select class="nc-input" name="categoria">
+              {% for c in ['trabalho','estudo','hobby','pessoal','saude','outro'] %}
+                <option value="{{ c }}" {{ 'selected' if c == t.categoria }}>{{ c|capitalize }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Salvar alterações</button>
+          <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalEditar{{ t.id_tarefa }}').classList.add('hidden')">Cancelar</button>
+        </form>
+      </div>
+    </div>
   {% endfor %}
 </div>
-
-<!-- Botão flutuante que abre o modal de nova tarefa -->
-<button class="fab" onclick="document.getElementById('modal-tarefa').style.display='flex'">+</button>
-
-<div id="modal-tarefa" class="modal-backdrop" style="display:none;">
-  <div class="modal">
-    <h2>Nova tarefa</h2>
-    <form method="POST" action="{{ url_for('criar_tarefa') }}">
-      <div class="field-block">
-        <label class="label">Título</label>
-        <input class="field" type="text" name="titulo" required>
-      </div>
-      <div class="field-block">
-        <label class="label">Início</label>
-        <input class="field" type="datetime-local" name="data_inicio" required>
-      </div>
-      <div class="field-block">
-        <label class="label">Fim</label>
-        <input class="field" type="datetime-local" name="data_fim" required>
-      </div>
-      <div class="field-block">
-        <label class="label">Categoria</label>
-        <select class="field" name="categoria">
-          <option value="trabalho">Trabalho</option>
-          <option value="estudo">Estudo</option>
-          <option value="hobby">Hobby</option>
-          <option value="pessoal">Pessoal</option>
-          <option value="saude">Saúde</option>
-          <option value="outro">Outro</option>
-        </select>
-      </div>
-      <div class="auth-actions">
-        <button class="primary" type="submit">Salvar</button>
-        <button class="outline" type="button"
-                onclick="document.getElementById('modal-tarefa').style.display='none'">Cancelar</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 {% endblock %}

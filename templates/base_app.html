@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="pt-br">
+
 <head>
   <meta charset="UTF-8">
   <title>NEOCORTEX</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
+
 <body>
   <div class="app-shell">
 
@@ -14,9 +16,13 @@
       </div>
       <div class="nav">
         <button class="{{ 'active' if pagina == 'tarefas' else '' }}"
-                onclick="window.location.href='{{ url_for('tarefas') }}'">Tarefas</button>
+          onclick="window.location.href='{{ url_for('tarefas') }}'">Tarefas</button>
+        <button class="{{ 'active' if pagina == 'calendario' else '' }}"
+          onclick="window.location.href='{{ url_for('calendario') }}'">Calendário</button>
+        <button class="{{ 'active' if pagina == 'rotina' else '' }}"
+          onclick="window.location.href='{{ url_for('rotina') }}'">Rotina Fixa</button>
         <button class="{{ 'active' if pagina == 'dashboard' else '' }}"
-                onclick="window.location.href='{{ url_for('dashboard') }}'">Dashboard</button>
+          onclick="window.location.href='{{ url_for('dashboard') }}'">Dashboard</button>
         <button class="logout" onclick="window.location.href='{{ url_for('logout') }}'">Sair</button>
       </div>
     </div>
@@ -38,4 +44,5 @@
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
+
 </html>

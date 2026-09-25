@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEOCORTEX — {{ titulo_pagina }}</title>
+  <head>
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('neocortex_dark') === 'true') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEOCORTEX — {{ titulo_pagina }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+</head>
+  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+</head>
+
+<body>
+  <div class="app-shell">
+    <div class="app-sidebar">
+      <div class="blob blob1"></div>
+      <div class="blob blob2"></div>
+      <div class="brand"><img src="{{ url_for('static', filename='logo.png') }}" alt="NEOCORTEX"></div>
+      <a href="{{ url_for('dashboard') }}" class="{{ 'active' if pagina == 'dashboard' else '' }}">🏠 Início</a>
+      <a href="{{ url_for('calendario') }}" class="{{ 'active' if pagina == 'calendario' else '' }}">🗓️ Agenda</a>
+      <a href="{{ url_for('tarefas') }}" class="{{ 'active' if pagina == 'tarefas' else '' }}">✅ Tarefas</a>
+      <a href="{{ url_for('rotina') }}" class="{{ 'active' if pagina == 'rotina' else '' }}">📅 Rotina Fixa</a>
+      <a href="{{ url_for('assistente') }}" class="{{ 'active' if pagina == 'assistente' else '' }}">🤖 Assistente</a>
+      <a href="{{ url_for('configuracoes') }}" class="{{ 'active' if pagina == 'configuracoes' else '' }}">⚙️ Configurações</a>
+      <a class="logout" href="{{ url_for('logout') }}">↩ Sair</a>
+    </div>
+    <div class="app-main">
+      <div class="app-topbar">
+        <h2>{{ titulo_pagina }}</h2>
+        <div style="display:flex;align-items:center;gap:14px;">
+          {% block topbar_extra %}{% endblock %}
+          <div class="avatar">{{ inicial_usuario }}</div>
+        </div>
+      </div>
+      <div class="app-content" style="position:relative;">
+        {% block conteudo %}{% endblock %}
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>

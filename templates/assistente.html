@@ -22,6 +22,16 @@
 
   </div>
 
+<div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 32px 16px;">
+  {% for sugestao in ['Organizar minha semana', 'O que ficou para depois?', 'Sugerir rotina de estudos', 'Criar nova atividade'] %}
+    <form method="POST" action="{{ url_for('enviar_mensagem') }}" style="margin:0;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mensagem" value="{{ sugestao }}">
+      <button type="submit" class="chip">{{ sugestao }}</button>
+    </form>
+  {% endfor %}
+</div>
+
   <form method="POST" action="{{ url_for('enviar_mensagem') }}"
         style="padding:16px 32px 28px;border-top:1px solid var(--nc-border);background:var(--nc-surface);display:flex;gap:12px;align-items:flex-end;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

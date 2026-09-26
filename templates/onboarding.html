@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEOCORTEX — Vamos conhecer sua rotina</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='onboarding.css') }}">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+</head>
+
+<body>
+  <main class="onboarding-shell">
+    <header class="onboarding-header">
+      <button id="backButton" class="header-back" type="button" aria-label="Voltar">
+        <span aria-hidden="true">←</span>
+      </button>
+
+      <div class="header-progress" aria-label="Progresso do cadastro">
+        <div id="progressBar" class="header-progress-fill"></div>
+      </div>
+
+      <div class="header-brand">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="" class="header-logo">
+        <span>NEOCORTEX</span>
+      </div>
+    </header>
+
+    <section class="onboarding-content">
+      <aside class="neo-panel" aria-label="Mensagem do NEOCORTEX">
+        <div class="neo-copy">
+          <span class="neo-eyebrow">Seu segundo córtex</span>
+          <h1 id="messageTitle">Vamos começar pelo que importa.</h1>
+          <p id="messageText">Você não precisa organizar tudo antes de começar. Só me conte um pouco sobre sua rotina.
+          </p>
+        </div>
+
+        <div class="neo-line" aria-hidden="true"></div>
+        <p class="neo-caption">Quanto mais eu entender seu ritmo, menos você precisa pensar na organização.</p>
+      </aside>
+
+      <section class="question-panel" aria-live="polite">
+        <div class="question-meta">
+          <span id="questionNumber">1</span>
+          <span class="meta-separator">/</span>
+          <span id="questionTotal">17</span>
+        </div>
+
+        <div class="question-heading">
+          <h2 id="questionTitle"></h2>
+          <p id="questionDescription"></p>
+        </div>
+
+        <div id="optionsContainer" class="options-container"></div>
+        <div id="customInputContainer" class="custom-input-container"></div>
+        <p id="validationMessage" class="validation-message" role="alert"></p>
+      </section>
+    </section>
+
+    <footer class="onboarding-footer">
+      <div class="footer-hint" id="footerHint">Escolha uma opção para continuar.</div>
+      <button id="continueButton" class="onboarding-continue" type="button" disabled>
+        Continuar <span aria-hidden="true">→</span>
+      </button>
+    </footer>
+  </main>
+
+  <script src="onboarding.js"></script>
+  <script src="{{ url_for('static', filename='onboarding.js') }}"></script>
+</body>
+
+</html>

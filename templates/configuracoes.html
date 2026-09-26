@@ -4,17 +4,21 @@
   <div style="width:100%;max-width:640px;display:flex;flex-direction:column;gap:28px;">
 
     {% if request.args.get('erro') == 'senha_atual' %}
-      <p style="color:#EF4444;font-size:13px;font-weight:700;">Senha atual incorreta.</p>
+    <p style="color:#EF4444;font-size:13px;font-weight:700;">Senha atual incorreta.</p>
     {% elif request.args.get('erro') == 'senha_curta' %}
-      <p style="color:#EF4444;font-size:13px;font-weight:700;">A nova senha precisa ter pelo menos 6 caracteres.</p>
+    <p style="color:#EF4444;font-size:13px;font-weight:700;">A nova senha precisa ter pelo menos 6 caracteres.</p>
     {% elif request.args.get('sucesso') == 'senha' %}
-      <p style="color:#22C55E;font-size:13px;font-weight:700;">Senha alterada com sucesso!</p>
+    <p style="color:#22C55E;font-size:13px;font-weight:700;">Senha alterada com sucesso!</p>
     {% endif %}
 
     <div class="nc-card" style="padding:28px;">
-      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Perfil</h3>
+      <h3
+        style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">
+        Perfil</h3>
       <div style="display:flex;align-items:center;gap:20px;">
-        <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg, #2563EB, #7C3AED);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:white;flex-shrink:0;">{{ inicial_usuario }}</div>
+        <div
+          style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg, #2563EB, #7C3AED);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:white;flex-shrink:0;">
+          {{ inicial_usuario }}</div>
         <div style="flex:1;">
           <p style="margin:0;font-size:18px;font-weight:800;color:var(--nc-text);">{{ session.nome }}</p>
         </div>
@@ -23,22 +27,51 @@
     </div>
 
     <div class="nc-card" style="padding:28px;">
-      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Aparência</h3>
+      <h3
+        style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">
+        Aparência</h3>
       <div style="display:flex;align-items:center;justify-content:space-between;">
-        <div><p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Modo escuro</p></div>
-        <div class="nc-toggle" id="toggleDark"><div class="knob"></div></div>
+        <div>
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Modo escuro</p>
+        </div>
+        <div class="nc-toggle" id="toggleDark">
+          <div class="knob"></div>
+        </div>
       </div>
     </div>
 
     <div class="nc-card" style="padding:28px;">
-      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Conta</h3>
-      <div class="settings-row-click" id="rowSenha" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+      <h3
+        style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">
+        Conta</h3>
+      <div class="settings-row-click" id="rowSenha"
+        style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
         <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Alterar senha</p>
         <span style="color:var(--nc-text2);">›</span>
       </div>
       <div style="height:1px;background:var(--nc-border);"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;">
+        <div>
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Notificações</p>
+          <p style="margin:0;font-size:11px;color:var(--nc-text2);">Preferência salva — o envio ainda está sendo
+            construído.</p>
+        </div>
+        <form method="POST" action="{{ url_for('salvar_notificacoes') }}" style="margin:0;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="checkbox" name="notificacoes_ativas" {{ 'checked' if notificacoes_ativas else '' }}
+            onchange="this.form.submit()">
+        </form>
+      </div>
+      <div style="height:1px;background:var(--nc-border);"></div>
+      <div id="rowExcluirConta" class="settings-row-click"
+        style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+        <p style="margin:0;font-size:14px;font-weight:700;color:#EF4444;">Excluir conta</p>
+        <span style="color:var(--nc-text2);">›</span>
+      </div>
+      <div style="height:1px;background:var(--nc-border);"></div>
       <a href="{{ url_for('exportar_dados') }}" style="text-decoration:none;">
-        <div class="settings-row-click" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+        <div class="settings-row-click"
+          style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
           <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Exportar meus dados</p>
           <span style="color:var(--nc-text2);">›</span>
         </div>
@@ -91,5 +124,18 @@
     toggle.classList.toggle('on', ligado);
     localStorage.setItem(DARK_KEY, ligado);
   });
+  document.getElementById('rowExcluirConta').addEventListener('click', function () {
+  const senha = prompt('Digite sua senha para confirmar a exclusão da conta. Essa ação não pode ser desfeita:');
+  if (senha === null) return;
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = "{{ url_for('excluir_conta') }}";
+  form.innerHTML = `
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="senha_atual" value="${senha.replace(/"/g, '&quot;')}">
+  `;
+  document.body.appendChild(form);
+  form.submit();
+});
 </script>
 {% endblock %}

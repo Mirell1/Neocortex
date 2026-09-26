@@ -80,7 +80,7 @@ def criar_tabelas():
 
 
 # ============================================================
-# 1. USUÁRIOS / LOGIN
+# 1. USUÁRIOS / LOGIN / CONFIGURAÇÕES
 # ============================================================
 
 def cadastrar_usuario(nome, email, senha, faixa_etaria, ocupacao, turno=None):
@@ -135,16 +135,22 @@ def buscar_usuario(id_usuario):
 
 COLUNAS_USUARIO_PERMITIDAS = {"nome"}
 
-def atualizar_usuario(id_usuario, **campos):
-    campos = {k: v for k, v in campos.items() if k in COLUNAS_USUARIO_PERMITIDAS}
-    if not campos:
-        return 0
-    colunas = ", ".join(f"{chave} = %s" for chave in campos)
-    valores = list(campos.values()) + [id_usuario]
+def cadastrar_usuario(nome, email, senha, faixa_etaria, trabalha, estuda, turno):
+    senha_hash = bcrypt.hashpw(senha.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"UPDATE usuarios SET {colunas} WHERE id_usuario = %s", valores)
-            return cur.rowcount
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO usuarios (nome, email, senha_hash, faixa_etaria, trabalha, estuda, turno)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id_usuario
+                    """,
+                    (nome, email, senha_hash, faixa_etaria, trabalha, estuda, turno),
+                )
+                return cur.fetchone()["id_usuario"]
+            except psycopg2.errors.UniqueViolation:
+                raise ValueError("Já existe um usuário cadastrado com esse e-mail.")
 
 
 def trocar_senha(id_usuario, nova_senha):
@@ -155,6 +161,36 @@ def trocar_senha(id_usuario, nova_senha):
                 "UPDATE usuarios SET senha_hash = %s WHERE id_usuario = %s",
                 (novo_hash, id_usuario),
             )
+
+def salvar_preferencia(id_usuario, chave, valor):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO preferencias (id_usuario, chave, valor)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (id_usuario, chave) DO UPDATE SET valor = EXCLUDED.valor
+                """,
+                (id_usuario, chave, valor),
+            )
+
+
+def buscar_preferencia(id_usuario, chave):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT valor FROM preferencias WHERE id_usuario = %s AND chave = %s",
+                (id_usuario, chave),
+            )
+            linha = cur.fetchone()
+    return linha["valor"] if linha else None
+
+
+def excluir_usuario(id_usuario):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM usuarios WHERE id_usuario = %s", (id_usuario,))
+            return cur.rowcount
 
 
 # ============================================================

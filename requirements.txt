@@ -5,3 +5,4 @@ bcrypt==5.0.0
 python-dotenv==1.2.3
 pandas==3.0.6
 plotly==7.1.0
+google.genai==2.25.0

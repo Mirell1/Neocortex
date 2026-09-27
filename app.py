@@ -16,6 +16,7 @@ import json
 import calendar as calendario_lib
 
 import db
+import ai
 
 app = Flask(__name__)
 
@@ -108,15 +109,36 @@ def cadastro_nome():
     session.modified = True
     return redirect(url_for("cadastro_perfil"))
 
+@app.route("/cadastro", methods=["POST"])
+def cadastro():
+    nome = request.form.get("nome", "").strip()
+    email = request.form.get("email", "").strip()
+    senha = request.form.get("senha", "")
+    faixa_etaria = request.form.get("faixa_etaria", "")
+    ocupacao = request.form.get("ocupacao", "")
+    turno = request.form.get("turno") or None
+    hobbies_texto = request.form.get("hobbies", "")
 
-DIAS_ONBOARDING_PARA_DB = {
-    "seg": "segunda", "ter": "terca", "qua": "quarta", "qui": "quinta",
-    "sex": "sexta", "sab": "sabado", "dom": "domingo",
-}
+    if not all([nome, email, senha, faixa_etaria, ocupacao]):
+        return render_template(
+            "auth.html", aba="cadastro",
+            erro="Preencha todos os campos obrigatórios (nome, e-mail, senha, faixa etária e ocupação).",
+        )
+    try:
+        id_usuario = db.cadastrar_usuario(nome, email, senha, faixa_etaria, ocupacao, turno)
+        for hobby in hobbies_texto.split(","):
+            if hobby.strip():
+                db.associar_hobby(id_usuario, hobby)
 
-FAIXA_ETARIA_ONBOARDING_PARA_DB = {
-    "18_24": "18-24", "25_34": "25-34", "35_44": "35-44", "45_plus": "45+",
-}
+        session["id_usuario"] = id_usuario
+        session["nome"] = nome
+        return redirect(url_for("tarefas"))
+
+    except ValueError as erro:
+        return render_template("auth.html", aba="cadastro", erro=str(erro))
+
+FAIXAS_ETARIAS_VALIDAS = {"14-18", "18-30", "30-50+"}
+OCUPACOES_VALIDAS = {"trabalha", "estuda", "nenhum"}
 
 
 @app.route("/cadastro/perfil", methods=["GET", "POST"])
@@ -125,76 +147,44 @@ def cadastro_perfil():
         return redirect(url_for("cadastro_conta"))
 
     if request.method == "GET":
-        return render_template("onboarding.html")
+        return render_template("cadastro_perfil.html", erro=None)
 
-    dados = request.get_json(silent=True) or {}
+    faixa_etaria = request.form.get("faixa_etaria", "")
+    ocupacao = request.form.get("ocupacao", "")
+    turno = request.form.get("turno") or None
+    energia = request.form.get("energia", "")
+    sono = request.form.get("sono", "")
+    desafios = request.form.getlist("desafio")
 
-    faixa_etaria = FAIXA_ETARIA_ONBOARDING_PARA_DB.get(dados.get("idade"))
-    trabalha = dados.get("trabalha") == "sim"
-    estuda = dados.get("estuda") == "sim"
-    turno = dados.get("turno_trabalho") or None
+    erro = None
+    if faixa_etaria not in FAIXAS_ETARIAS_VALIDAS:
+        erro = "Selecione sua faixa etária."
+    elif ocupacao not in OCUPACOES_VALIDAS:
+        erro = "Selecione sua ocupação."
+    elif not energia or not sono or not desafios:
+        erro = "Responda todas as perguntas sobre sua rotina."
 
-    if not faixa_etaria:
-        return jsonify({"erro": "Faixa etária inválida."}), 400
+    if erro:
+        return render_template("cadastro_perfil.html", erro=erro)
 
-    cadastro = session["cadastro"]
+    dados = session["cadastro"]
     try:
         id_usuario = db.cadastrar_usuario(
-            cadastro["nome"], cadastro["email"], cadastro["senha"],
-            faixa_etaria, trabalha, estuda, turno,
+            dados["nome"], dados["email"], dados["senha"],
+            faixa_etaria, ocupacao, turno,
         )
     except ValueError as e:
-        return jsonify({"erro": str(e)}), 400
+        return render_template("cadastro_perfil.html", erro=str(e))
 
-    # Rotina de trabalho
-    dias_trabalho = dados.get("dias_trabalho") or []
-    horario_trabalho = dados.get("horario_trabalho_personalizado") or dados.get("horario_trabalho_estimado")
-    if trabalha and dias_trabalho and horario_trabalho:
-        for dia in dias_trabalho:
-            dia_db = DIAS_ONBOARDING_PARA_DB.get(dia)
-            if dia_db:
-                db.adicionar_rotina(id_usuario, dia_db, "Trabalho", horario_trabalho["start"], horario_trabalho["end"])
-
-    # Rotina de estudo
-    dias_estudo = dados.get("dias_estudo") or []
-    horario_estudo = dados.get("horario_estudo")
-    if estuda and dias_estudo and horario_estudo:
-        for dia in dias_estudo:
-            dia_db = DIAS_ONBOARDING_PARA_DB.get(dia)
-            if dia_db:
-                db.adicionar_rotina(id_usuario, dia_db, "Estudo", horario_estudo["start"], horario_estudo["end"])
-
-    # Hobbies
-    for hobby in (dados.get("hobbies") or []):
-        if hobby != "personalizado":
-            db.associar_hobby(id_usuario, hobby)
-    hobby_personalizado = dados.get("hobby_personalizado")
-    if hobby_personalizado:
-        db.associar_hobby(id_usuario, hobby_personalizado)
-
-    # Preferências e padrões
-    if dados.get("areas_melhoria"):
-        db.salvar_padrao(id_usuario, "areas_melhoria", ", ".join(dados["areas_melhoria"]))
-    if dados.get("tipo_estudo"):
-        db.salvar_preferencia(id_usuario, "tipo_estudo", dados["tipo_estudo"])
-    if dados.get("frequencia_hobbies"):
-        db.salvar_preferencia(id_usuario, "frequencia_hobbies", dados["frequencia_hobbies"])
-    if dados.get("sugestoes_hobbies"):
-        db.salvar_preferencia(id_usuario, "quer_sugestoes_hobbies", dados["sugestoes_hobbies"])
-    if dados.get("tempo_organizacao"):
-        db.salvar_padrao(id_usuario, "tempo_organizacao", dados["tempo_organizacao"])
-    if dados.get("tempo_neocortex"):
-        db.salvar_padrao(id_usuario, "tempo_neocortex", dados["tempo_neocortex"])
-    if dados.get("personalizacao"):
-        db.registrar_interacao(id_usuario, dados["personalizacao"], tipo="texto", contexto="cadastro_inicial")
-    # "personalizacao" (texto livre) é recebida mas propositalmente NÃO
-    # é salva ainda — aguardando revisão do Matheus sobre esse campo.
+    db.salvar_padrao(id_usuario, "energia", energia)
+    db.salvar_padrao(id_usuario, "sono", sono)
+    db.salvar_padrao(id_usuario, "desafio", ", ".join(desafios))
 
     session.pop("cadastro", None)
     session["id_usuario"] = id_usuario
-    session["nome"] = cadastro["nome"]
+    session["nome"] = dados["nome"]
 
-    return jsonify({"redirect": url_for("cadastro_sucesso")})
+    return redirect(url_for("cadastro_sucesso"))
 
 
 @app.route("/cadastro/sucesso")
@@ -228,22 +218,16 @@ def tarefas():
         return redirect(url_for("tela_login"))
 
     filtro = request.args.get("filtro", "hoje")
-    categoria_filtro = request.args.get("categoria", "todas")
-
     lista_tarefas = tarefas_filtradas(usuario_logado(), filtro)
-    if categoria_filtro != "todas":
-        lista_tarefas = [t for t in lista_tarefas if t["categoria"] == categoria_filtro]
 
     return render_template(
         "tarefas.html",
         tarefas=lista_tarefas,
         filtro=filtro,
-        categoria_filtro=categoria_filtro,
         pagina="tarefas",
         titulo_pagina="Tarefas",
         inicial_usuario=(session.get("nome") or "?")[0].upper(),
     )
-
 
 
 @app.route("/tarefas/nova", methods=["POST"])
@@ -332,31 +316,11 @@ def agrupar_rotina(lista_rotina):
     return resultado
 
 COR_POR_STATUS = {
-    "pendente": "#255DC5",       # dourado suave — "está na sua lista", sem urgência
-    "em_andamento": "#DCBD21",   # azul acinzentado — calmo, "em curso"
-    "concluida": "#4CC76F",      # verde salva, suave — conquista sem euforia forçada
-    "cancelada": "#A8B0BB",      # cinza neutro — sem julgamento
+    "pendente": "#2563EB",
+    "em_andamento": "#F59E0B",
+    "concluida": "#22C55E",
+    "cancelada": "#9CA3AF",
 }
-COR_ATRASADA = "#8D1EB9"         # terracota empoeirado — chama atenção sem alarmar
-
-app.jinja_env.globals["COR_POR_STATUS"] = COR_POR_STATUS
-
-def status_visual(tarefa):
-    agora = datetime.now()
-
-    if tarefa["status"] == "concluida":
-        return "concluída", COR_POR_STATUS["concluida"]
-    if tarefa["status"] == "cancelada":
-        return "cancelada", COR_POR_STATUS["cancelada"]
-    if tarefa["data_fim"] < agora:
-        return "atrasada", COR_ATRASADA
-    if tarefa["data_inicio"] <= agora <= tarefa["data_fim"]:
-        return "em andamento", COR_POR_STATUS["em_andamento"]
-    return "pendente", COR_POR_STATUS["pendente"]
-
-
-app.jinja_env.globals["status_visual"] = status_visual
-
 
 @app.route("/tarefas/<int:id_tarefa>/editar", methods=["POST"])
 def editar_tarefa(id_tarefa):
@@ -540,11 +504,10 @@ def calendario():
     for t in db.listar_tarefas(usuario_logado()):
         if t["data_inicio"].year == ano and t["data_inicio"].month == mes:
             dia = t["data_inicio"].day
-            _,  cor_status = status_visual(t)
             eventos_por_dia.setdefault(dia, []).append({
                 "label": t["titulo"],
-                "cor": t["cor"] or cor_status,
-        })
+                "cor": t["cor"] or COR_POR_STATUS.get(t["status"], "#2563EB"),
+            })
 
     for r in db.listar_rotina(usuario_logado()):
         for semana in semanas:
@@ -603,7 +566,25 @@ def enviar_mensagem():
 
     texto = request.form.get("mensagem", "").strip()
     if texto:
-        db.registrar_interacao(usuario_logado(), texto)
+        id_usuario = usuario_logado()
+
+        # Histórico ANTES de salvar a mensagem nova, pra dar contexto
+        # ao Gemini sem duplicar a última mensagem no meio da conversa.
+        historico = list(reversed(
+            db.listar_interacoes(id_usuario, contexto="interacao_geral", limite=20)
+        ))
+
+        db.registrar_interacao(id_usuario, texto, autor="usuario")
+
+        try:
+            resposta = ai.responder(id_usuario, texto, historico)
+        except Exception:
+            # Um problema na API externa (Gemini fora do ar, chave
+            # inválida etc.) não pode quebrar a tela do usuário — a
+            # mensagem dele já foi salva de qualquer forma.
+            resposta = "Deu um problema pra falar com a IA agora. Tenta de novo em um instante."
+
+        db.registrar_interacao(id_usuario, resposta, autor="assistente")
 
     return redirect(url_for("assistente"))
 
@@ -685,62 +666,6 @@ def exportar_dados():
         mimetype="application/json",
         headers={"Content-Disposition": "attachment; filename=neocortex-dados.json"},
     )
-
-
-def salvar_preferencia(id_usuario, chave, valor):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO preferencias (id_usuario, chave, valor)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (id_usuario, chave) DO UPDATE SET valor = EXCLUDED.valor
-                """,
-                (id_usuario, chave, valor),
-            )
-
-
-def buscar_preferencia(id_usuario, chave):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT valor FROM preferencias WHERE id_usuario = %s AND chave = %s",
-                (id_usuario, chave),
-            )
-            linha = cur.fetchone()
-    return linha["valor"] if linha else None
-
-
-def excluir_usuario(id_usuario):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM usuarios WHERE id_usuario = %s", (id_usuario,))
-            return cur.rowcount
-
-        
-@app.route("/configuracoes/notificacoes", methods=["POST"])
-def salvar_notificacoes():
-    if not usuario_logado():
-        return redirect(url_for("tela_login"))
-
-    ativado = request.form.get("notificacoes_ativas") == "on"
-    db.salvar_preferencia(usuario_logado(), "notificacoes_ativas", "true" if ativado else "false")
-    return redirect(url_for("configuracoes"))
-
-
-@app.route("/configuracoes/excluir-conta", methods=["POST"])
-def excluir_conta():
-    if not usuario_logado():
-        return redirect(url_for("tela_login"))
-
-    senha_atual = request.form.get("senha_atual", "")
-    usuario = db.buscar_usuario(usuario_logado())
-    if not usuario or not bcrypt.checkpw(senha_atual.encode("utf-8"), usuario["senha_hash"].encode("utf-8")):
-        return redirect(url_for("configuracoes", erro="senha_atual"))
-
-    db.excluir_usuario(usuario_logado())
-    session.clear()
-    return redirect(url_for("tela_login"))
 
 if __name__ == "__main__":
 

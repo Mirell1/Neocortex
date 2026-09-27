@@ -1,0 +1,44 @@
+DOCUMENTO — ARQUITETURA CONCEITUAL DE INTELIGÊNCIA DO NEOCORTEX
+
+Este documento apresenta a arquitetura conceitual de inteligência do NEOCORTEX, demonstrando como o sistema coleta informações do usuário, transforma dados em memória contextual e comportamental e utiliza essas informações para gerar recomendações personalizadas.
+
+O documento descreve o funcionamento do Agente do NEOCORTEX desde a entrada dos dados até a tomada de decisão, considerando não apenas as tarefas cadastradas, mas também a rotina, objetivos, preferências, histórico, padrões de execução e contexto atual.
+
+O objetivo é estabelecer uma base para definir quais dados serão coletados, como serão analisados, quais memórias serão mantidas e como a inteligência do sistema utilizará essas informações para auxiliar o usuário.
+
+TEMAS ABORDADOS:
+
+FUNDAMENTOS DA INTELIGÊNCIA DO NEOCORTEX
+COLETA E ESTRUTURAÇÃO DE DADOS
+MEMÓRIA DO USUÁRIO
+ANÁLISE COMPORTAMENTAL
+CONTEXTO E ESTADO ATUAL
+MOTOR DE DECISÃO E PRIORIZAÇÃO
+SISTEMA DE RECOMENDAÇÕES
+CASOS DE USO
+APRENDIZADO E EVOLUÇÃO DO PERFIL
+ARQUITETURA CONCEITUAL DA INTELIGÊNCIA
+
+[CONTEÚDO COMPLETO PRESERVADO A PARTIR DO TEXTO FORNECIDO PELO USUÁRIO]
+
+Formatação para Google Docs: título principal em 18 pt, subtítulos em 14 pt e corpo do texto em 11 pt.
+
+FLUXO CENTRAL DA INTELIGÊNCIA:
+
+Dados do usuário → Contexto → Análise → Decisão → Recomendação → Resultado → Aprendizado
+
+CICLO DE APRENDIZADO:
+
+Coleta → Armazenamento → Análise → Identificação de padrões → Decisão → Recomendação → Execução → Avaliação → Aprendizado
+
+ARQUITETURA:
+
+Coleta de Dados → Estruturação → Memória → Contexto → Análise → Motor de Decisão → Recomendação → Execução → Resultado → Aprendizado → Atualização da Memória
+
+RESUMO:
+
+ENTENDER → ANALISAR → DECIDIR → APRENDER
+
+CICLO FINAL:
+
+DADOS → MEMÓRIA → CONTEXTO → ANÁLISE → DECISÃO → RECOMENDAÇÃO → RESULTADO → APRENDIZADO → DADOS

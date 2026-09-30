@@ -89,7 +89,7 @@ def criar_tabelas():
 # 1. USUÁRIOS / LOGIN
 # ============================================================
 
-def cadastrar_usuario(nome, email, senha, faixa_etaria, ocupacao, turno=None):
+def cadastrar_usuario(nome, email, senha, faixa_etaria, trabalha, estuda, turno=None):
     """
     Cadastra um usuário e retorna o id criado.
     """
@@ -104,11 +104,11 @@ def cadastrar_usuario(nome, email, senha, faixa_etaria, ocupacao, turno=None):
                 cur.execute(
                     """
                     INSERT INTO usuarios
-                        (nome, email, senha_hash, faixa_etaria, ocupacao, turno)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                        (nome, email, senha_hash, faixa_etaria, trabalha, estuda, turno)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING id_usuario
                     """,
-                    (nome, email, senha_hash, faixa_etaria, ocupacao, turno),
+                    (nome, email, senha_hash, faixa_etaria, trabalha, estuda, turno),
                 )
                 return cur.fetchone()["id_usuario"]
             except psycopg2.errors.UniqueViolation:
@@ -193,6 +193,17 @@ def trocar_senha(id_usuario, nova_senha):
                 (novo_hash, id_usuario),
             )
 
+def excluir_usuario(id_usuario):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM usuarios WHERE id_usuario = %s", (id_usuario,))
+            return cur.rowcount
+
+def email_existe(email):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM usuarios WHERE email = %s", (email,))
+            return cur.fetchone() is not None
 
 # ============================================================
 # 2. HOBBIES
@@ -287,79 +298,39 @@ def listar_hobbies_usuario(id_usuario):
 # 3. TAREFAS
 # ============================================================
 
-def criar_tarefa(
-    id_usuario,
-    titulo,
-    data_inicio,
-    data_fim,
-    descricao=None,
-    categoria=None,
-    cor=None,
-    origem="manual",
-):
-    """Cria uma tarefa e retorna seu id."""
+def criar_tarefa(id_usuario, titulo, data_inicio, data_fim, categoria=None, descricao=None, origem="manual"):
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO tarefas
-                    (
-                        id_usuario,
-                        titulo,
-                        descricao,
-                        categoria,
-                        data_inicio,
-                        data_fim,
-                        cor,
-                        origem
-                    )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO tarefas (id_usuario, titulo, data_inicio, data_fim, categoria, descricao, origem)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id_tarefa
                 """,
-                (
-                    id_usuario,
-                    titulo,
-                    descricao,
-                    categoria,
-                    data_inicio,
-                    data_fim,
-                    cor,
-                    origem,
-                ),
+                (id_usuario, titulo, data_inicio, data_fim, categoria, descricao, origem),
             )
             return cur.fetchone()["id_tarefa"]
 
 
-def listar_tarefas(
-    id_usuario,
-    data_inicio=None,
-    data_fim=None,
-    status=None,
-):
-    """Lista tarefas do usuário com filtros opcionais."""
+def listar_tarefas(id_usuario, status=None, data_inicio=None, data_fim=None):
     query = "SELECT * FROM tarefas WHERE id_usuario = %s"
     parametros = [id_usuario]
-
-    if data_inicio is not None:
-        query += " AND data_inicio >= %s"
-        parametros.append(data_inicio)
-
-    if data_fim is not None:
-        query += " AND data_fim <= %s"
-        parametros.append(data_fim)
-
     if status:
         query += " AND status = %s"
         parametros.append(status)
-
+    if data_inicio:
+        query += " AND data_inicio >= %s"
+        parametros.append(data_inicio)
+    if data_fim:
+        query += " AND data_fim <= %s"
+        parametros.append(data_fim)
     query += " ORDER BY data_inicio"
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(query, parametros)
             linhas = cur.fetchall()
-
-    return [dict(linha) for linha in linhas]
+    return [dict(l) for l in linhas]
 
 
 def buscar_tarefa(id_tarefa, id_usuario):
@@ -854,6 +825,29 @@ def listar_preferencias(id_usuario):
             linhas = cur.fetchall()
 
     return [dict(linha) for linha in linhas]
+
+def salvar_preferencia(id_usuario, chave, valor):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO preferencias (id_usuario, chave, valor)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (id_usuario, chave) DO UPDATE SET valor = EXCLUDED.valor
+                """,
+                (id_usuario, chave, valor),
+            )
+
+
+def buscar_preferencia(id_usuario, chave):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT valor FROM preferencias WHERE id_usuario = %s AND chave = %s",
+                (id_usuario, chave),
+            )
+            linha = cur.fetchone()
+    return linha["valor"] if linha else None
 
 
 # ============================================================

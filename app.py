@@ -17,6 +17,9 @@ import calendar as calendario_lib
 
 import db
 import ai
+import markdown as markdown_lib
+import bleach
+
 
 app = Flask(__name__)
 
@@ -86,6 +89,8 @@ def cadastro_conta():
         erro = "As senhas não coincidem."
     elif len(senha) < 6:
         erro = "A senha precisa ter pelo menos 6 caracteres."
+    elif db.email_existe(email):
+        erro = "Já existe uma conta com esse e-mail. Tenta entrar em vez de cadastrar de novo."
 
     if erro:
         return render_template("cadastro_conta.html", erro=erro)
@@ -137,8 +142,16 @@ def cadastro():
     except ValueError as erro:
         return render_template("auth.html", aba="cadastro", erro=str(erro))
 
-FAIXAS_ETARIAS_VALIDAS = {"14-18", "18-30", "30-50+"}
-OCUPACOES_VALIDAS = {"trabalha", "estuda", "nenhum"}
+
+
+DIAS_ONBOARDING_PARA_DB = {
+    "seg": "segunda", "ter": "terca", "qua": "quarta", "qui": "quinta",
+    "sex": "sexta", "sab": "sabado", "dom": "domingo",
+}
+
+FAIXA_ETARIA_ONBOARDING_PARA_DB = {
+    "18_24": "18-24", "25_34": "25-34", "35_44": "35-44", "45_plus": "45+",
+}
 
 
 @app.route("/cadastro/perfil", methods=["GET", "POST"])
@@ -147,44 +160,72 @@ def cadastro_perfil():
         return redirect(url_for("cadastro_conta"))
 
     if request.method == "GET":
-        return render_template("cadastro_perfil.html", erro=None)
+        return render_template("onboarding.html")
 
-    faixa_etaria = request.form.get("faixa_etaria", "")
-    ocupacao = request.form.get("ocupacao", "")
-    turno = request.form.get("turno") or None
-    energia = request.form.get("energia", "")
-    sono = request.form.get("sono", "")
-    desafios = request.form.getlist("desafio")
+    dados = request.get_json(silent=True) or {}
 
-    erro = None
-    if faixa_etaria not in FAIXAS_ETARIAS_VALIDAS:
-        erro = "Selecione sua faixa etária."
-    elif ocupacao not in OCUPACOES_VALIDAS:
-        erro = "Selecione sua ocupação."
-    elif not energia or not sono or not desafios:
-        erro = "Responda todas as perguntas sobre sua rotina."
+    faixa_etaria = FAIXA_ETARIA_ONBOARDING_PARA_DB.get(dados.get("idade"))
+    trabalha = dados.get("trabalha") == "sim"
+    estuda = dados.get("estuda") == "sim"
+    turno = dados.get("turno_trabalho") or None
 
-    if erro:
-        return render_template("cadastro_perfil.html", erro=erro)
+    if not faixa_etaria:
+        return jsonify({"erro": "Faixa etária inválida."}), 400
 
-    dados = session["cadastro"]
+    cadastro = session["cadastro"]
     try:
         id_usuario = db.cadastrar_usuario(
-            dados["nome"], dados["email"], dados["senha"],
-            faixa_etaria, ocupacao, turno,
+            cadastro["nome"], cadastro["email"], cadastro["senha"],
+            faixa_etaria, trabalha, estuda, turno,
         )
     except ValueError as e:
-        return render_template("cadastro_perfil.html", erro=str(e))
+        return jsonify({"erro": str(e)}), 400
 
-    db.salvar_padrao(id_usuario, "energia", energia)
-    db.salvar_padrao(id_usuario, "sono", sono)
-    db.salvar_padrao(id_usuario, "desafio", ", ".join(desafios))
+    dias_trabalho = dados.get("dias_trabalho") or []
+    horario_trabalho = dados.get("horario_trabalho_personalizado") or dados.get("horario_trabalho_estimado")
+    if trabalha and dias_trabalho and horario_trabalho:
+        for dia in dias_trabalho:
+            dia_db = DIAS_ONBOARDING_PARA_DB.get(dia)
+            if dia_db:
+                db.adicionar_rotina(id_usuario, dia_db, "Trabalho", horario_trabalho["start"], horario_trabalho["end"])
+
+    dias_estudo = dados.get("dias_estudo") or []
+    horario_estudo = dados.get("horario_estudo")
+    if estuda and dias_estudo and horario_estudo:
+        for dia in dias_estudo:
+            dia_db = DIAS_ONBOARDING_PARA_DB.get(dia)
+            if dia_db:
+                db.adicionar_rotina(id_usuario, dia_db, "Estudo", horario_estudo["start"], horario_estudo["end"])
+
+    for hobby in (dados.get("hobbies") or []):
+        if hobby != "personalizado":
+            db.associar_hobby(id_usuario, hobby)
+    hobby_personalizado = dados.get("hobby_personalizado")
+    if hobby_personalizado:
+        db.associar_hobby(id_usuario, hobby_personalizado)
+
+    if dados.get("areas_melhoria"):
+        db.salvar_padrao(id_usuario, "areas_melhoria", ", ".join(dados["areas_melhoria"]))
+    if dados.get("tipo_estudo"):
+        db.salvar_preferencia(id_usuario, "tipo_estudo", dados["tipo_estudo"])
+    if dados.get("frequencia_hobbies"):
+        db.salvar_preferencia(id_usuario, "frequencia_hobbies", dados["frequencia_hobbies"])
+    if dados.get("sugestoes_hobbies"):
+        db.salvar_preferencia(id_usuario, "quer_sugestoes_hobbies", dados["sugestoes_hobbies"])
+    if dados.get("pico_energia") in {"manha", "tarde", "noite", "nao_sei"}:
+        db.salvar_padrao(id_usuario, "energia", dados["pico_energia"])
+    if dados.get("tempo_organizacao"):
+        db.salvar_padrao(id_usuario, "tempo_organizacao", dados["tempo_organizacao"])
+    if dados.get("tempo_neocortex"):
+        db.salvar_padrao(id_usuario, "tempo_neocortex", dados["tempo_neocortex"])
+    if dados.get("personalizacao"):
+        db.registrar_interacao(id_usuario, dados["personalizacao"], tipo="texto", contexto="cadastro_inicial")
 
     session.pop("cadastro", None)
     session["id_usuario"] = id_usuario
-    session["nome"] = dados["nome"]
+    session["nome"] = cadastro["nome"]
 
-    return redirect(url_for("cadastro_sucesso"))
+    return jsonify({"redirect": url_for("cadastro_sucesso")})
 
 
 @app.route("/cadastro/sucesso")
@@ -218,12 +259,17 @@ def tarefas():
         return redirect(url_for("tela_login"))
 
     filtro = request.args.get("filtro", "hoje")
+    categoria_filtro = request.args.get("categoria", "todas")
+
     lista_tarefas = tarefas_filtradas(usuario_logado(), filtro)
+    if categoria_filtro != "todas":
+        lista_tarefas = [t for t in lista_tarefas if t["categoria"] == categoria_filtro]
 
     return render_template(
         "tarefas.html",
         tarefas=lista_tarefas,
         filtro=filtro,
+        categoria_filtro=categoria_filtro,
         pagina="tarefas",
         titulo_pagina="Tarefas",
         inicial_usuario=(session.get("nome") or "?")[0].upper(),
@@ -256,13 +302,13 @@ def criar_tarefa():
             erro = "Data ou horário inválido."
 
     if erro:
-        lista_tarefas = tarefas_filtradas(usuario_logado(), "hoje")
-        return render_template(
-            "tarefas.html", tarefas=lista_tarefas, pagina="tarefas",
-            titulo_pagina="Tarefas",
-            inicial_usuario=(session.get("nome") or "?")[0].upper(),
-            erro=erro,
-        )
+            lista_tarefas = tarefas_filtradas(usuario_logado(), "hoje")
+            return render_template(
+                "tarefas.html", tarefas=lista_tarefas, filtro="hoje", categoria_filtro="todas",
+                pagina="tarefas", titulo_pagina="Tarefas",
+                inicial_usuario=(session.get("nome") or "?")[0].upper(),
+                erro=erro,
+            )
 
     db.criar_tarefa(usuario_logado(), titulo=titulo, data_inicio=data_inicio, data_fim=data_fim, categoria=categoria)
     return redirect(url_for("tarefas"))
@@ -315,12 +361,40 @@ def agrupar_rotina(lista_rotina):
         resultado.append(g)
     return resultado
 
+TAGS_MARKDOWN_PERMITIDAS = ["p", "br", "strong", "em", "b", "i", "ul", "ol", "li", "h1", "h2", "h3", "h4", "code", "pre", "blockquote", "a"]
+ATRIBUTOS_MARKDOWN_PERMITIDOS = {"a": ["href", "title"]}
+
+
+def renderizar_markdown(texto):
+    html = markdown_lib.markdown(texto, extensions=["nl2br"])
+    return bleach.clean(html, tags=TAGS_MARKDOWN_PERMITIDAS, attributes=ATRIBUTOS_MARKDOWN_PERMITIDOS, strip=True)
+
+
+app.jinja_env.filters["markdown"] = renderizar_markdown
+
 COR_POR_STATUS = {
     "pendente": "#2563EB",
     "em_andamento": "#F59E0B",
     "concluida": "#22C55E",
     "cancelada": "#9CA3AF",
 }
+
+COR_ATRASADA = "#9B6FD1" 
+
+def status_visual(tarefa):
+    agora = datetime.now()
+    if tarefa["status"] == "concluida":
+        return "concluída", COR_POR_STATUS["concluida"]
+    if tarefa["status"] == "cancelada":
+        return "cancelada", COR_POR_STATUS["cancelada"]
+    if tarefa["data_fim"] < agora:
+        return "atrasada", COR_ATRASADA
+    if tarefa["data_inicio"] <= agora <= tarefa["data_fim"]:
+        return "em andamento", COR_POR_STATUS["em_andamento"]
+    return "pendente", COR_POR_STATUS["pendente"]
+
+app.jinja_env.globals["status_visual"] = status_visual
+
 
 @app.route("/tarefas/<int:id_tarefa>/editar", methods=["POST"])
 def editar_tarefa(id_tarefa):
@@ -348,13 +422,13 @@ def editar_tarefa(id_tarefa):
             erro = "Data ou horário inválido."
 
     if erro:
-        lista_tarefas = tarefas_filtradas(usuario_logado(), "hoje")
-        return render_template(
-            "tarefas.html", tarefas=lista_tarefas, pagina="tarefas",
-            titulo_pagina="Tarefas",
-            inicial_usuario=(session.get("nome") or "?")[0].upper(),
-            erro=erro,
-        )
+            lista_tarefas = tarefas_filtradas(usuario_logado(), "hoje")
+            return render_template(
+                "tarefas.html", tarefas=lista_tarefas, filtro="hoje", categoria_filtro="todas",
+                pagina="tarefas", titulo_pagina="Tarefas",
+                inicial_usuario=(session.get("nome") or "?")[0].upper(),
+                erro=erro,
+            )
 
     linhas_afetadas = db.atualizar_tarefa(
         id_tarefa, usuario_logado(),
@@ -491,52 +565,46 @@ PYTHON_WEEKDAY_PARA_DIA_SEMANA = {
 def calendario():
     if not usuario_logado():
         return redirect(url_for("tela_login"))
-
-    hoje = datetime.now()
-    ano = request.args.get("ano", type=int) or hoje.year
-    mes = request.args.get("mes", type=int) or hoje.month
-
-    cal = calendario_lib.Calendar(firstweekday=6)  # semana começa no domingo
-    semanas = cal.monthdayscalendar(ano, mes)
-
-    eventos_por_dia = {}
-
-    for t in db.listar_tarefas(usuario_logado()):
-        if t["data_inicio"].year == ano and t["data_inicio"].month == mes:
-            dia = t["data_inicio"].day
-            eventos_por_dia.setdefault(dia, []).append({
-                "label": t["titulo"],
-                "cor": t["cor"] or COR_POR_STATUS.get(t["status"], "#2563EB"),
-            })
-
-    for r in db.listar_rotina(usuario_logado()):
-        for semana in semanas:
-            for dia in semana:
-                if dia == 0:
-                    continue
-                data_do_dia = datetime(ano, mes, dia)
-                if PYTHON_WEEKDAY_PARA_DIA_SEMANA[data_do_dia.weekday()] == r["dia_semana"]:
-                    eventos_por_dia.setdefault(dia, []).append({
-                        "label": r["descricao"],
-                        "cor": "#94A3B8",
-                    })
-
-    mes_anterior, ano_anterior = (12, ano - 1) if mes == 1 else (mes - 1, ano)
-    mes_seguinte, ano_seguinte = (1, ano + 1) if mes == 12 else (mes + 1, ano)
-
     return render_template(
         "calendario.html",
-        semanas=semanas,
-        eventos_por_dia=eventos_por_dia,
-        mes_nome=MESES_PT[mes - 1],
-        mes=mes, ano=ano,
-        hoje_dia=hoje.day, hoje_mes=hoje.month, hoje_ano=hoje.year,
-        mes_anterior=mes_anterior, ano_anterior=ano_anterior,
-        mes_seguinte=mes_seguinte, ano_seguinte=ano_seguinte,
         pagina="calendario",
         titulo_pagina="Agenda",
         inicial_usuario=(session.get("nome") or "?")[0].upper(),
     )
+
+@app.route("/api/eventos")
+def api_eventos():
+    if not usuario_logado():
+        return jsonify({"tarefas": [], "rotina": []}), 401
+
+    id_usuario = usuario_logado()
+
+    tarefas_json = []
+    for t in db.listar_tarefas(id_usuario):
+        label, cor = status_visual(t)
+        tarefas_json.append({
+            "id": t["id_tarefa"],
+            "titulo": t["titulo"],
+            "data_inicio": t["data_inicio"].isoformat(),
+            "data_fim": t["data_fim"].isoformat(),
+            "cor": t["cor"] or cor,
+            "status_label": label,
+            "categoria": t["categoria"],
+            "concluida": t["status"] == "concluida",
+        })
+
+    rotina_json = [
+        {
+            "id": r["id_rotina"],
+            "descricao": r["descricao"],
+            "dia_semana": r["dia_semana"],
+            "hora_inicio": r["hora_inicio"],
+            "hora_fim": r["hora_fim"],
+        }
+        for r in db.listar_rotina(id_usuario)
+    ]
+
+    return jsonify({"tarefas": tarefas_json, "rotina": rotina_json})
 
 #================================================
 #ASSISTENTE
@@ -576,13 +644,11 @@ def enviar_mensagem():
 
         db.registrar_interacao(id_usuario, texto, autor="usuario")
 
-        try:
-            resposta = ai.responder(id_usuario, texto, historico)
-        except Exception:
-            # Um problema na API externa (Gemini fora do ar, chave
-            # inválida etc.) não pode quebrar a tela do usuário — a
-            # mensagem dele já foi salva de qualquer forma.
-            resposta = "Deu um problema pra falar com a IA agora. Tenta de novo em um instante."
+    try:
+        resposta = ai.responder(id_usuario, texto, historico)
+    except Exception as erro:
+        print("### ERRO REAL DA IA:", repr(erro))
+        resposta = "Deu um problema pra falar com a IA agora. Tenta de novo em um instante."
 
         db.registrar_interacao(id_usuario, resposta, autor="assistente")
 
@@ -597,8 +663,10 @@ def enviar_mensagem():
 def configuracoes():
     if not usuario_logado():
         return redirect(url_for("tela_login"))
+    notificacoes_ativas = db.buscar_preferencia(usuario_logado(), "notificacoes_ativas") == "true"
     return render_template(
         "configuracoes.html",
+        notificacoes_ativas=notificacoes_ativas,
         pagina="configuracoes",
         titulo_pagina="Configurações",
         inicial_usuario=(session.get("nome") or "?")[0].upper(),
@@ -666,6 +734,29 @@ def exportar_dados():
         mimetype="application/json",
         headers={"Content-Disposition": "attachment; filename=neocortex-dados.json"},
     )
+
+@app.route("/configuracoes/excluir-conta", methods=["POST"])
+def excluir_conta():
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+
+    senha_atual = request.form.get("senha_atual", "")
+    usuario = db.buscar_usuario(usuario_logado())
+    if not usuario or not bcrypt.checkpw(senha_atual.encode("utf-8"), usuario["senha_hash"].encode("utf-8")):
+        return redirect(url_for("configuracoes", erro="senha_atual"))
+
+    db.excluir_usuario(usuario_logado())
+    session.clear()
+    return redirect(url_for("tela_login"))
+
+@app.route("/configuracoes/notificacoes", methods=["POST"])
+def salvar_notificacoes():
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+
+    ativado = request.form.get("notificacoes_ativas") == "on"
+    db.salvar_preferencia(usuario_logado(), "notificacoes_ativas", "true" if ativado else "false")
+    return redirect(url_for("configuracoes"))
 
 if __name__ == "__main__":
 

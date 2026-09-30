@@ -4,13 +4,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+import time
 
 import db
 
 load_dotenv()
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 cliente = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -476,9 +477,9 @@ CONSULTAR_ROTINA_FIXA = {
 CONSULTAR_PERFIL_USUARIO = {
     "name": "consultar_perfil_usuario",
     "description": (
-        "Consulta o perfil (faixa etária, ocupação, turno) e os padrões "
-        "comportamentais já registrados do usuário autenticado (energia, "
-        "sono, desafios etc.). Use para personalizar recomendações."
+        "Consulta o perfil (faixa etária, se trabalha, se estuda, turno) e os "
+        "padrões comportamentais já registrados do usuário autenticado "
+        "(energia, sono, desafios etc.). Use para personalizar recomendações."
     ),
     "parameters": {
         "type": "OBJECT",
@@ -589,16 +590,15 @@ def _construir_executores(id_usuario):
         usuario = db.buscar_usuario(id_usuario)
         perfil = None
         if usuario:
-            # nunca devolve senha_hash (ou qualquer outro dado sensível)
-            # pra a IA — ela só precisa do que ajuda a personalizar.
             perfil = {
                 "nome": usuario["nome"],
                 "faixa_etaria": usuario["faixa_etaria"],
-                "ocupacao": usuario["ocupacao"],
+                "trabalha": usuario["trabalha"],
+                "estuda": usuario["estuda"],
                 "turno": usuario["turno"],
             }
-        padroes = {p["tipo_padrao"]: p["valor"] for p in db.listar_padroes(id_usuario)}
-        return _json_seguro({"perfil": perfil, "padroes_comportamentais": padroes})
+        preferencias = {p["chave"]: p["valor"] for p in db.listar_preferencias(id_usuario)}
+        return _json_seguro({"perfil": perfil, "padroes_comportamentais": padroes, "preferencias": preferencias})
 
     def criar_tarefa(titulo, data_inicio, data_fim, categoria=None, descricao=None):
         id_tarefa = db.criar_tarefa(
@@ -640,6 +640,23 @@ def _historico_para_conteudo(historico):
         )
     return contents
 
+def _chamar_com_retentativas(func, max_tentativas=3, espera_inicial=2):
+    """
+    Tenta de novo automaticamente quando o Gemini está sobrecarregado
+    (503 UNAVAILABLE) — problema momentâneo do lado do Google, não do
+    nosso código. Espera crescente entre tentativas (2s, depois 4s).
+    """
+    for tentativa in range(max_tentativas):
+        try:
+            return func()
+        except Exception as erro:
+            ultima_tentativa = tentativa == max_tentativas - 1
+            if "UNAVAILABLE" in str(erro) or "503" in str(erro):
+                if ultima_tentativa:
+                    raise
+                time.sleep(espera_inicial * (2 ** tentativa))
+                continue
+            raise  # qualquer outro erro (cota, chave inválida etc.) sobe na hora, sem esperar
 
 _MAX_RODADAS_DE_FERRAMENTAS = 5
 
@@ -669,11 +686,11 @@ def responder(id_usuario, mensagem, historico=None):
     )
 
     for _ in range(_MAX_RODADAS_DE_FERRAMENTAS):
-        resposta = cliente.models.generate_content(
+        resposta = _chamar_com_retentativas(lambda: cliente.models.generate_content(
             model=GEMINI_MODEL,
             contents=contents,
             config=config,
-        )
+        ))
 
         candidato = resposta.candidates[0] if resposta.candidates else None
         partes = candidato.content.parts if candidato and candidato.content else None

@@ -2,43 +2,320 @@
 {% block conteudo %}
 <div style="padding:32px;display:flex;flex-direction:column;gap:24px;">
   <div style="display:flex;justify-content:space-between;align-items:center;">
-    <div style="display:inline-flex;background:var(--nc-surface);border:1px solid var(--nc-border);border-radius:10px;padding:4px;">
-      <button type="button" style="padding:7px 20px;border-radius:7px;border:none;background:linear-gradient(135deg, #2563EB, #7C3AED);color:white;font-size:13px;font-weight:700;">Mês</button>
-    </div>
+    <div id="calTabs" style="display:inline-flex;background:var(--nc-surface);border:1px solid var(--nc-border);border-radius:10px;padding:4px;gap:2px;"></div>
     <div style="display:flex;align-items:center;gap:16px;">
-      <a href="{{ url_for('calendario', ano=ano_anterior, mes=mes_anterior) }}" class="btn-ghost-sm" style="padding:6px 12px;text-decoration:none;">‹</a>
-      <span style="font-size:15px;font-weight:800;color:var(--nc-text);min-width:160px;text-align:center;">{{ mes_nome }} {{ ano }}</span>
-      <a href="{{ url_for('calendario', ano=ano_seguinte, mes=mes_seguinte) }}" class="btn-ghost-sm" style="padding:6px 12px;text-decoration:none;">›</a>
+      <button id="calPrev" class="btn-ghost-sm" style="padding:6px 12px;" aria-label="Anterior">‹</button>
+      <span id="calLabel" style="font-size:15px;font-weight:800;color:var(--nc-text);min-width:240px;text-align:center;"></span>
+      <button id="calNext" class="btn-ghost-sm" style="padding:6px 12px;" aria-label="Próximo">›</button>
     </div>
   </div>
 
   <div class="nc-card" style="overflow:hidden;">
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--nc-border);">
-      {% for nome_dia in ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'] %}
-        <div style="padding:12px 8px;text-align:center;font-size:12px;font-weight:700;color:var(--nc-text2);text-transform:uppercase;letter-spacing:0.5px;background:var(--nc-bg);">{{ nome_dia }}</div>
-      {% endfor %}
+    <div id="monthView">
+      <div id="calWeekdays" style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--nc-border);"></div>
+      <div id="calGrid" style="display:grid;grid-template-columns:repeat(7,1fr);"></div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);">
-      {% for semana in semanas %}
-        {% for dia in semana %}
-          {% set e_hoje = (dia == hoje_dia and mes == hoje_mes and ano == hoje_ano) %}
-          <div style="min-height:110px;padding:10px 8px;border-right:1px solid var(--nc-border);border-top:1px solid var(--nc-border);background:{{ 'rgba(37,99,235,0.04)' if e_hoje else 'transparent' }};">
-            {% if dia != 0 %}
-              <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;background:{{ '#2563EB' if e_hoje else 'transparent' }};font-size:13px;font-weight:800;color:{{ 'white' if e_hoje else 'var(--nc-text)' }};">{{ dia }}</div>
-              <div style="display:flex;flex-direction:column;gap:3px;">
-                {% set eventos = eventos_por_dia.get(dia, []) %}
-                {% for ev in eventos[:2] %}
-                  <div style="padding:2px 6px;border-radius:4px;background:{{ ev.cor }}22;color:{{ ev.cor }};font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ ev.label }}</div>
-                {% endfor %}
-                {% if eventos|length > 2 %}
-                  <span style="font-size:10px;font-weight:600;color:var(--nc-text2);">+{{ eventos|length - 2 }}</span>
-                {% endif %}
-              </div>
-            {% endif %}
-          </div>
-        {% endfor %}
-      {% endfor %}
-    </div>
+    <div id="weekView" class="hidden"></div>
+    <div id="dayView" class="hidden"></div>
   </div>
 </div>
+
+<script>
+  /* ---------- dados reais, buscados uma vez ---------- */
+  let TAREFAS = [];
+  let ROTINA = [];
+  const NUMERO_PARA_DIA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+
+  /* ---------- constantes ---------- */
+  const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const WEEKDAYS_LONG = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+  const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const MONTH_SHORT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+  const TABS = ['Hoje', 'Semana', 'Mês'];
+  const PAGE_TITLES = { 'Hoje': 'Agenda do dia', 'Semana': 'Agenda semanal', 'Mês': 'Agenda mensal' };
+
+  const GRID_START = 6;
+  const GRID_END = 24;
+  const ROW_H = 56;
+  document.documentElement.style.setProperty('--cal-row', ROW_H + 'px');
+
+  let activeTab = 'Mês';
+  let cursor = new Date();
+
+  const monthView = document.getElementById('monthView');
+  const weekView = document.getElementById('weekView');
+  const dayView = document.getElementById('dayView');
+
+  /* ---------- utilitários de data ---------- */
+  function sameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+  function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+  function addMonths(d, n) {
+    const target = new Date(d.getFullYear(), d.getMonth() + n, 1);
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    return new Date(target.getFullYear(), target.getMonth(), Math.min(d.getDate(), lastDay));
+  }
+  function startOfWeek(d) { return addDays(d, -d.getDay()); }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function dateKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function parseKey(key) { const p = key.split('-'); return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10)); }
+  function toMin(hhmm) { const p = hhmm.split(':'); return parseInt(p[0], 10) * 60 + parseInt(p[1], 10); }
+  function fmtMin(m) { return pad(Math.floor(m / 60)) + ':' + pad(m % 60); }
+  function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+  /* ---------- itens reais de uma data (tarefas + rotina fixa) ---------- */
+  function itemsForDate(date) {
+    const key = dateKey(date);
+    const weekdayName = NUMERO_PARA_DIA[date.getDay()];
+    const items = [];
+
+    TAREFAS.forEach(function (t) {
+      const inicio = new Date(t.data_inicio);
+      if (dateKey(inicio) !== key) return;
+      const fim = new Date(t.data_fim);
+      items.push({
+        kind: 'tarefa', label: t.titulo, color: t.cor, bg: t.cor + '22',
+        startMin: inicio.getHours() * 60 + inicio.getMinutes(),
+        endMin: fim.getHours() * 60 + fim.getMinutes(),
+        done: t.concluida
+      });
+    });
+
+    ROTINA.forEach(function (r) {
+      if (r.dia_semana !== weekdayName) return;
+      items.push({
+        kind: 'rotina', label: r.descricao, color: '#94A3B8', bg: 'rgba(148,163,184,0.16)',
+        startMin: toMin(r.hora_inicio), endMin: toMin(r.hora_fim), done: false
+      });
+    });
+
+    return items;
+  }
+
+  /* itens que se sobrepõem no horário ficam lado a lado */
+  function layoutItems(items) {
+    const sorted = items.slice().sort(function (a, b) { return a.startMin - b.startMin || a.endMin - b.endMin; });
+    const clusters = [];
+    let cluster = null;
+    let clusterEnd = -1;
+    sorted.forEach(function (it) {
+      if (!cluster || it.startMin >= clusterEnd) { cluster = []; clusters.push(cluster); clusterEnd = it.endMin; }
+      else { clusterEnd = Math.max(clusterEnd, it.endMin); }
+      cluster.push(it);
+    });
+    clusters.forEach(function (cl) {
+      const cols = [];
+      cl.forEach(function (it) {
+        let placed = false;
+        for (let c = 0; c < cols.length; c++) {
+          if (cols[c] <= it.startMin) { cols[c] = it.endMin; it.col = c; placed = true; break; }
+        }
+        if (!placed) { it.col = cols.length; cols.push(it.endMin); }
+      });
+      cl.forEach(function (it) { it.cols = cols.length; });
+    });
+    return sorted;
+  }
+
+  function gutterHtml() {
+    let h = '<div class="cal-gutter">';
+    for (let hr = GRID_START; hr < GRID_END; hr++) h += '<div class="cal-hour-label">' + pad(hr) + ':00</div>';
+    return h + '</div>';
+  }
+
+  function itemHtml(it) {
+    const s = Math.max(it.startMin, GRID_START * 60);
+    const e = Math.min(it.endMin, GRID_END * 60);
+    if (e <= s) return '';
+    const top = (s - GRID_START * 60) / 60 * ROW_H;
+    const height = Math.max((e - s) / 60 * ROW_H - 2, 22);
+    const w = 100 / it.cols;
+    const left = it.col * w;
+    const timeText = fmtMin(it.startMin) + ' – ' + fmtMin(it.endMin);
+    const mostrarHorario = height >= 34;
+    return '<div class="cal-ev' + (it.kind === 'rotina' ? ' cal-ev-task' : '') + (it.done ? ' cal-ev-done' : '') + '" style="top:' + top + 'px;height:' + height + 'px;left:calc(' + left + '% + 2px);width:calc(' + w + '% - 4px);background:' + it.bg + ';color:' + it.color + ';border-left-color:' + it.color + ';">' +
+      '<div class="cal-ev-title">' + escapeHtml(it.label) + '</div>' +
+      (mostrarHorario ? '<div class="cal-ev-time">' + timeText + '</div>' : '') + '</div>';
+  }
+
+  function columnHtml(date, items) {
+    const now = new Date();
+    const isToday = sameDay(date, now);
+    let html = '<div class="cal-col' + (isToday ? ' cal-col-today' : '') + '" style="height:' + ((GRID_END - GRID_START) * ROW_H) + 'px;">';
+    html += layoutItems(items).map(itemHtml).join('');
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    if (isToday && nowMin >= GRID_START * 60 && nowMin < GRID_END * 60) {
+      html += '<div class="cal-now" style="top:' + ((nowMin - GRID_START * 60) / 60 * ROW_H) + 'px;"></div>';
+    }
+    return html + '</div>';
+  }
+
+  function scrollToFocus(el, focusMin) {
+    el.scrollTop = Math.max(0, (focusMin - GRID_START * 60) / 60 * ROW_H - ROW_H);
+  }
+
+  /* ---------- abas e rótulo ---------- */
+  function renderTabs() {
+    document.getElementById('calTabs').innerHTML = TABS.map(function (tab) {
+      const active = activeTab === tab;
+      return '<button data-tab="' + tab + '" style="padding:7px 20px;border-radius:7px;border:none;background:' + (active ? 'linear-gradient(135deg, #2563EB, #7C3AED)' : 'transparent') + ';color:' + (active ? 'white' : 'var(--nc-text2)') + ';font-size:13px;font-weight:700;cursor:pointer;">' + tab + '</button>';
+    }).join('');
+    document.querySelectorAll('#calTabs [data-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        activeTab = btn.dataset.tab;
+        if (activeTab === 'Hoje') cursor = new Date();
+        render();
+      });
+    });
+  }
+
+  function renderLabel() {
+    let text;
+    if (activeTab === 'Mês') {
+      text = MONTH_NAMES[cursor.getMonth()] + ' ' + cursor.getFullYear();
+    } else if (activeTab === 'Semana') {
+      const s = startOfWeek(cursor);
+      const e = addDays(s, 6);
+      if (s.getFullYear() !== e.getFullYear()) {
+        text = s.getDate() + ' ' + MONTH_SHORT[s.getMonth()] + ' ' + s.getFullYear() + ' – ' + e.getDate() + ' ' + MONTH_SHORT[e.getMonth()] + ' ' + e.getFullYear();
+      } else if (s.getMonth() !== e.getMonth()) {
+        text = s.getDate() + ' ' + MONTH_SHORT[s.getMonth()] + ' – ' + e.getDate() + ' ' + MONTH_SHORT[e.getMonth()] + ' ' + e.getFullYear();
+      } else {
+        text = s.getDate() + ' – ' + e.getDate() + ' ' + MONTH_SHORT[e.getMonth()] + ' ' + e.getFullYear();
+      }
+    } else {
+      text = WEEKDAYS_LONG[cursor.getDay()] + ', ' + cursor.getDate() + ' de ' + MONTH_NAMES[cursor.getMonth()].toLowerCase() + ' de ' + cursor.getFullYear();
+    }
+    document.getElementById('calLabel').textContent = text;
+  }
+
+  function openDay(el) {
+    cursor = parseKey(el.dataset.date);
+    activeTab = 'Hoje';
+    render();
+  }
+
+  /* ---------- visão MÊS ---------- */
+  document.getElementById('calWeekdays').innerHTML = WEEKDAYS.map(function (d) {
+    return '<div style="padding:12px 8px;text-align:center;font-size:12px;font-weight:700;color:var(--nc-text2);text-transform:uppercase;letter-spacing:0.5px;">' + d + '</div>';
+  }).join('');
+
+  function renderMonth() {
+    const viewYear = cursor.getFullYear();
+    const viewMonth = cursor.getMonth();
+    const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
+    const cells = [];
+    for (let i = firstDayOfMonth - 1; i >= 0; i--) cells.push({ day: daysInPrevMonth - i, currentMonth: false, date: new Date(viewYear, viewMonth - 1, daysInPrevMonth - i) });
+    for (let i = 1; i <= daysInMonth; i++) cells.push({ day: i, currentMonth: true, date: new Date(viewYear, viewMonth, i) });
+    const remaining = cells.length % 7 === 0 ? 0 : 7 - (cells.length % 7);
+    for (let i = 1; i <= remaining; i++) cells.push({ day: i, currentMonth: false, date: new Date(viewYear, viewMonth + 1, i) });
+
+    const todayDate = new Date();
+    document.getElementById('calGrid').innerHTML = cells.map(function (cell, idx) {
+      const today = cell.currentMonth && sameDay(cell.date, todayDate);
+      const items = cell.currentMonth ? itemsForDate(cell.date) : [];
+      const isLast = idx >= cells.length - 7;
+      let evHtml = items.slice(0, 2).map(function (it) {
+        return '<div style="padding:2px 6px;border-radius:4px;background:' + it.bg + ';color:' + it.color + ';font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(it.label) + '</div>';
+      }).join('');
+      if (items.length > 2) evHtml += '<span style="font-size:10px;font-weight:600;color:var(--nc-text2);padding-left:6px;">+' + (items.length - 2) + '</span>';
+      return '<div class="cal-cell-day" data-date="' + dateKey(cell.date) + '" style="min-height:110px;padding:10px 8px;' + ((idx + 1) % 7 !== 0 ? 'border-right:1px solid var(--nc-border);' : '') + (!isLast ? 'border-bottom:1px solid var(--nc-border);' : '') + 'background:' + (today ? 'rgba(37,99,235,0.04)' : 'transparent') + ';">' +
+        '<div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;background:' + (today ? '#2563EB' : 'transparent') + ';font-size:13px;font-weight:' + (today ? 800 : (cell.currentMonth ? 600 : 400)) + ';color:' + (today ? 'white' : (cell.currentMonth ? 'var(--nc-text)' : 'var(--nc-text2)')) + ';opacity:' + (cell.currentMonth ? 1 : 0.35) + ';">' + cell.day + '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:3px;">' + evHtml + '</div></div>';
+    }).join('');
+
+    document.querySelectorAll('#calGrid [data-date]').forEach(function (el) {
+      el.addEventListener('click', function () { openDay(el); });
+    });
+  }
+
+  /* ---------- visão SEMANA ---------- */
+  function renderWeek() {
+    const start = startOfWeek(cursor);
+    const todayDate = new Date();
+    let head = '<div class="cal-head cal-week-head"><div></div>';
+    let cols = '';
+    const starts = [];
+    let weekHasToday = false;
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(start, i);
+      const isToday = sameDay(d, todayDate);
+      if (isToday) weekHasToday = true;
+      const items = itemsForDate(d);
+      items.forEach(function (it) { starts.push(it.startMin); });
+      head += '<div class="cal-head-day' + (isToday ? ' is-today' : '') + '" data-date="' + dateKey(d) + '"><span class="wd">' + WEEKDAYS[d.getDay()] + '</span><span class="num">' + d.getDate() + '</span></div>';
+      cols += columnHtml(d, items);
+    }
+    head += '</div>';
+    weekView.innerHTML = '<div class="cal-scroll" id="weekScroll">' + head + '<div class="cal-week-tg">' + gutterHtml() + cols + '</div></div>';
+
+    weekView.querySelectorAll('.cal-head-day').forEach(function (el) {
+      el.addEventListener('click', function () { openDay(el); });
+    });
+    const nowMin = todayDate.getHours() * 60 + todayDate.getMinutes();
+    const focus = starts.length ? Math.min.apply(null, starts) : (weekHasToday ? nowMin : 8 * 60);
+    scrollToFocus(document.getElementById('weekScroll'), focus);
+  }
+
+  /* ---------- visão HOJE / DIA ---------- */
+  function renderDay() {
+    const d = cursor;
+    const todayDate = new Date();
+    const isToday = sameDay(d, todayDate);
+    const items = itemsForDate(d);
+
+    const nTarefas = items.filter(function (i) { return i.kind === 'tarefa'; }).length;
+    const nRotina = items.filter(function (i) { return i.kind === 'rotina'; }).length;
+    const parts = [];
+    if (nTarefas) parts.push(nTarefas + (nTarefas === 1 ? ' tarefa' : ' tarefas'));
+    if (nRotina) parts.push(nRotina + (nRotina === 1 ? ' item de rotina' : ' itens de rotina'));
+    const summary = parts.length ? parts.join(' · ') : 'Nenhum compromisso neste dia';
+
+    const head = '<div class="cal-head cal-day-head">' +
+      '<div class="cal-day-big">' + d.getDate() + '</div>' +
+      '<div><div class="cal-day-name">' + WEEKDAYS_LONG[d.getDay()] + (isToday ? ' · hoje' : '') + '</div>' +
+      '<div class="cal-day-sub">' + MONTH_NAMES[d.getMonth()] + ' ' + d.getFullYear() + '</div></div>' +
+      '<div class="cal-day-count">' + summary + '</div></div>';
+
+    dayView.innerHTML = '<div class="cal-scroll" id="dayScroll">' + head + '<div class="cal-tg">' + gutterHtml() + columnHtml(d, items) + '</div></div>';
+
+    const nowMin = todayDate.getHours() * 60 + todayDate.getMinutes();
+    const focus = items.length ? Math.min.apply(null, items.map(function (i) { return i.startMin; })) : (isToday ? nowMin : 8 * 60);
+    scrollToFocus(document.getElementById('dayScroll'), focus);
+  }
+
+  /* ---------- render geral e navegação ---------- */
+  function render() {
+    renderTabs();
+    document.querySelector('.app-topbar h2').textContent = PAGE_TITLES[activeTab];
+    renderLabel();
+    monthView.classList.toggle('hidden', activeTab !== 'Mês');
+    weekView.classList.toggle('hidden', activeTab !== 'Semana');
+    dayView.classList.toggle('hidden', activeTab !== 'Hoje');
+    if (activeTab === 'Mês') renderMonth();
+    else if (activeTab === 'Semana') renderWeek();
+    else renderDay();
+  }
+
+  function shift(dir) {
+    if (activeTab === 'Mês') cursor = addMonths(cursor, dir);
+    else if (activeTab === 'Semana') cursor = addDays(cursor, 7 * dir);
+    else cursor = addDays(cursor, dir);
+    render();
+  }
+
+  document.getElementById('calPrev').addEventListener('click', function () { shift(-1); });
+  document.getElementById('calNext').addEventListener('click', function () { shift(1); });
+
+  /* ---------- carrega os dados reais e só então desenha ---------- */
+  fetch("{{ url_for('api_eventos') }}")
+    .then(function (r) { return r.json(); })
+    .then(function (dados) {
+      TAREFAS = dados.tarefas || [];
+      ROTINA = dados.rotina || [];
+      render();
+    });
+</script>
 {% endblock %}

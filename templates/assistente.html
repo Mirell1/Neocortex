@@ -1,29 +1,84 @@
 {% extends "base_app_novo.html" %}
 {% block conteudo %}
+
+<style>
+  .chat-bubble-assist p {
+    margin: 0 0 8px;
+  }
+
+  .chat-bubble-assist p:last-child {
+    margin-bottom: 0;
+  }
+
+  .chat-bubble-assist ul,
+  .chat-bubble-assist ol {
+    margin: 4px 0 8px;
+    padding-left: 20px;
+  }
+
+  .chat-bubble-assist h1,
+  .chat-bubble-assist h2,
+  .chat-bubble-assist h3 {
+    font-size: 15px;
+    margin: 10px 0 6px;
+  }
+
+  .chat-bubble-assist strong {
+    font-weight: 800;
+  }
+
+  .chat-bubble-assist code {
+    background: rgba(0, 0, 0, 0.06);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+</style>
+
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden;">
   <div style="flex:1;overflow-y:auto;padding:32px;display:flex;flex-direction:column;gap:20px;">
 
+    {% for m in mensagens %}
+    {% if m.autor == 'assistente' %}
     <div style="display:flex;gap:12px;align-items:flex-end;">
-      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#2563EB,#7C3AED);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;">◈</div>
-      <div style="max-width:65%;">
-        <div class="chat-bubble-assist">Oi! Sou o assistente do NEOCORTEX. Minha parte de inteligência artificial ainda está sendo construída — por enquanto, suas mensagens ficam guardadas aqui e vão alimentar minhas respostas assim que eu estiver pronto. 🙂</div>
+      <div
+        style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#2563EB,#7C3AED);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;">
+        ◈</div>
+      <div style="max-width:65%;display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+        <div class="chat-bubble-assist">{{ m.conteudo | markdown | safe }}</div>
+        <span style="font-size:11px;font-weight:500;color:var(--nc-text2);">{{ m.data_hora.strftime('%d/%m %H:%M')
+          }}</span>
       </div>
     </div>
-
-    {% for m in mensagens %}
-      <div style="display:flex;gap:12px;flex-direction:row-reverse;align-items:flex-end;">
-        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7C3AED,#01004E);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:white;font-size:13px;font-weight:800;">{{ inicial_usuario }}</div>
-        <div style="max-width:65%;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-          <div class="chat-bubble-user">{{ m.conteudo }}</div>
-          <span style="font-size:11px;font-weight:500;color:var(--nc-text2);">{{ m.data_hora.strftime('%d/%m %H:%M') }}</span>
-        </div>
+    {% else %}
+    <div style="display:flex;gap:12px;flex-direction:row-reverse;align-items:flex-end;">
+      <div
+        style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7C3AED,#01004E);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:white;font-size:13px;font-weight:800;">
+        {{ inicial_usuario }}</div>
+      <div style="max-width:65%;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+        <div class="chat-bubble-user">{{ m.conteudo }}</div>
+        <span style="font-size:11px;font-weight:500;color:var(--nc-text2);">{{ m.data_hora.strftime('%d/%m %H:%M')
+          }}</span>
       </div>
+    </div>
+    {% endif %}
     {% endfor %}
 
   </div>
 
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 32px 16px;">
+    {% for sugestao in ['Organizar minha semana', 'O que ficou para depois?', 'Sugerir rotina de estudos', 'Criar nova
+    atividade'] %}
+    <form method="POST" action="{{ url_for('enviar_mensagem') }}" style="margin:0;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mensagem" value="{{ sugestao }}">
+      <button type="submit" class="chip">{{ sugestao }}</button>
+    </form>
+    {% endfor %}
+  </div>
+
   <form method="POST" action="{{ url_for('enviar_mensagem') }}"
-        style="padding:16px 32px 28px;border-top:1px solid var(--nc-border);background:var(--nc-surface);display:flex;gap:12px;align-items:flex-end;">
+    style="padding:16px 32px 28px;border-top:1px solid var(--nc-border);background:var(--nc-surface);display:flex;gap:12px;align-items:flex-end;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input name="mensagem" class="nc-input" placeholder="Escreva uma mensagem..." required style="flex:1;">
     <button type="submit" class="btn-primary" style="width:44px;height:44px;border-radius:12px;padding:0;">↑</button>

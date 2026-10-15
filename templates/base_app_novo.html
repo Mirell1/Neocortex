@@ -1,11 +1,9 @@
 <!doctype html>
-<html lang="pt-BR">
-
+<html lang="pt-BR" data-fonte="{{ acess_fonte }}" data-contraste="{{ acess_contraste }}" data-tipografia="{{ acess_tipografia }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NEOCORTEX — {{ titulo_pagina }}</title>
-  <head>
   <script>
     (function () {
       try {
@@ -15,14 +13,13 @@
       } catch (e) {}
     })();
   </script>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NEOCORTEX — {{ titulo_pagina }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+  {% if mascote_ativo %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='mascote_robo.css') }}">
+  {% endif %}
 </head>
-  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
-</head>
-
 <body>
   <div class="app-shell">
     <div class="app-sidebar">
@@ -33,7 +30,10 @@
       <a href="{{ url_for('calendario') }}" class="{{ 'active' if pagina == 'calendario' else '' }}">🗓️ Agenda</a>
       <a href="{{ url_for('tarefas') }}" class="{{ 'active' if pagina == 'tarefas' else '' }}">✅ Tarefas</a>
       <a href="{{ url_for('rotina') }}" class="{{ 'active' if pagina == 'rotina' else '' }}">📅 Rotina Fixa</a>
+      <a href="{{ url_for('objetivos') }}" class="{{ 'active' if pagina == 'objetivos' else '' }}">🎯 Objetivos</a>
       <a href="{{ url_for('assistente') }}" class="{{ 'active' if pagina == 'assistente' else '' }}">🤖 Assistente</a>
+      <a href="{{ url_for('jornada') }}" class="{{ 'active' if pagina == 'jornada' else '' }}">🗺️ Jornada</a>
+      <a href="{{ url_for('mascote_loja') }}" class="{{ 'active' if pagina == 'mascote_loja' else '' }}">🛍️ Loja</a>
       <a href="{{ url_for('configuracoes') }}" class="{{ 'active' if pagina == 'configuracoes' else '' }}">⚙️ Configurações</a>
       <a class="logout" href="{{ url_for('logout') }}">↩ Sair</a>
     </div>
@@ -50,6 +50,23 @@
       </div>
     </div>
   </div>
+  {% if mascote_ativo and pagina != 'assistente' %}
+  <div class="nc-mascote-dock{{ ' acima-do-fab' if pagina in ('tarefas', 'rotina', 'objetivos') else '' }}">
+    {% include "partials/mascote.html" %}
+  </div>
+  {% endif %}
+  {% if mascote_ativo %}
+  <script>
+    window.NC_EVENTOS_INICIAIS = {{ mascote_eventos | tojson }};
+    window.NC_SAUDACAO_DADOS = { hora: new Date().getHours(), pendentes: {{ tarefas_pendentes_hoje | default('null') }} };
+  </script>
+  <script src="{{ url_for('static', filename='mascote_robo.js') }}" defer></script>
+  {% endif %}
+  <div vw class="enabled">
+    <div vw-access-button class="active"></div>
+    <div vw-plugin-wrapper><div class="vw-plugin-top-wrapper"></div></div>
+  </div>
+  <script src="https://vlibras.gov.br/app/vlibras-plugin.js"></script>
+  <script>new window.VLibras.Widget('https://vlibras.gov.br/app');</script>
 </body>
-
 </html>

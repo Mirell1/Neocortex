@@ -8,6 +8,23 @@
  */
 
 const onboardingFlow = {
+
+    acessibilidade: {
+    type: "single",
+    title: "Alguma preferência de acessibilidade?",
+    description: "Pode mudar isso quando quiser, depois, em Configurações.",
+    messageTitle: "Quero que a leitura seja confortável pra você.",
+    message: "Isso ajusta o tamanho e o estilo do texto em todo o sistema.",
+    options: [
+      { value: "padrao", label: "Nenhuma por enquanto" },
+      { value: "fonte_grande", label: "Fonte maior" },
+      { value: "alto_contraste", label: "Alto contraste" },
+      { value: "dislexia", label: "Fonte para dislexia" },
+    ],
+    optional: true,
+    next: "areas_melhoria"
+  },
+
   areas_melhoria: {
     type: "multiple",
     title: "O que você gostaria de organizar melhor?",
@@ -237,6 +254,16 @@ const onboardingFlow = {
       { value: "flexivel", label: "Quando eu precisar" },
       { value: "nao_sei", label: "Ainda não sei" }
     ],
+    next: "objetivos"  
+  },
+
+    objetivos: {
+    type: "lista_objetivos",
+    title: "Quais objetivos você quer alcançar?",
+    description: "Pode adicionar quantos quiser, com ou sem prazo. Também pode pular essa parte.",
+    messageTitle: "Pra onde você quer ir?",
+    message: "Isso ajuda o NEOCORTEX a sugerir tarefas que realmente te aproximam de algo, não só encher sua agenda.",
+    optional: true,
     next: "personalizacao"
   },
 
@@ -263,12 +290,13 @@ Object.keys(onboardingFlow).forEach((id) => {
 });
 
 const state = {
-  currentQuestionId: "areas_melhoria",
+  currentQuestionId: "acessibilidade",
   history: [],
   answers: {}
 };
 
 const progressSequence = [
+  "acessibilidade",
   "areas_melhoria",
   "idade",
   "trabalha",
@@ -286,6 +314,7 @@ const progressSequence = [
   "pico_energia",
   "tempo_organizacao",
   "tempo_neocortex",
+  "objetivos",
   "personalizacao"
 ];
 
@@ -400,7 +429,10 @@ function renderQuestion() {
     renderTime(question);
   } else if (question.type === "textarea") {
     renderTextarea(question);
+  } else if (question.type === "lista_objetivos") {
+    renderListaObjetivos(question);
   }
+  
 
   updateContinueButton();
 }
@@ -665,6 +697,59 @@ function validateSpecialCases(question) {
   }
 
   return true;
+}
+
+function formatarDataBR(iso) {
+  const [ano, mes, dia] = iso.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+function renderListaObjetivos(question) {
+  const lista = Array.isArray(state.answers[question.id]) ? state.answers[question.id] : [];
+
+  const itensHtml = lista.map((obj, i) => `
+    <li class="objetivo-item" data-index="${i}">
+      <span class="objetivo-item-titulo">${escapeHtml(obj.titulo)}</span>
+      ${obj.prazo ? `<span class="objetivo-item-prazo">até ${formatarDataBR(obj.prazo)}</span>` : ""}
+      <button type="button" class="objetivo-item-remove" data-index="${i}" aria-label="Remover objetivo">✕</button>
+    </li>
+  `).join("");
+
+  els.custom.innerHTML = `
+    <ul class="objetivos-lista">${itensHtml}</ul>
+    <div class="objetivo-form">
+      <input id="objetivoTitulo" class="custom-text-input" type="text" maxlength="100" placeholder="Ex.: Aprender inglês, terminar o TCC...">
+      <input id="objetivoPrazo" class="time-field" type="date" style="margin-top:8px;width:100%;">
+      <button type="button" id="objetivoAdicionar" class="chip" style="margin-top:10px;">+ Adicionar objetivo</button>
+    </div>
+  `;
+
+  document.getElementById("objetivoAdicionar").addEventListener("click", () => {
+    const tituloInput = document.getElementById("objetivoTitulo");
+    const prazoInput = document.getElementById("objetivoPrazo");
+    const titulo = tituloInput.value.trim();
+    if (!titulo) {
+      els.validation.textContent = "Digite um título antes de adicionar.";
+      return;
+    }
+    const atual = Array.isArray(state.answers[question.id]) ? [...state.answers[question.id]] : [];
+    atual.push({ titulo, prazo: prazoInput.value || null });
+    state.answers[question.id] = atual;
+    clearValidation();
+    renderListaObjetivos(question);
+    updateContinueButton();
+  });
+
+  els.custom.querySelectorAll(".objetivo-item-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.index);
+      const atual = [...state.answers[question.id]];
+      atual.splice(idx, 1);
+      state.answers[question.id] = atual;
+      renderListaObjetivos(question);
+      updateContinueButton();
+    });
+  });
 }
 
 function updateContinueButton() {

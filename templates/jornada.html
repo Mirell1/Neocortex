@@ -1,0 +1,57 @@
+{% extends "base_app_novo.html" %}
+{% block conteudo %}
+<div style="padding:32px;display:flex;flex-direction:column;align-items:center;">
+  <div style="width:100%;max-width:560px;">
+    <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:var(--nc-text);">Sua jornada</h2>
+    <p style="margin:0 0 28px;font-size:13px;font-weight:600;color:var(--nc-text2);">
+      {{ mascote_pontos }} pontos
+      {% if mascote_proximo_nivel %} · faltam {{ mascote_proximo_nivel.pontos_min - mascote_pontos }} para {{ mascote_proximo_nivel.nome }}{% endif %}
+    </p>
+
+    <svg width="100%" viewBox="0 0 496 {{ altura_svg }}" style="overflow:visible;">
+      <defs>
+        <linearGradient id="trilhoFeito" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#2563EB"/><stop offset="1" stop-color="#7C3AED"/>
+        </linearGradient>
+      </defs>
+
+      {% for n in nos %}
+        {% if not loop.first %}
+          {% set anterior = nos[loop.index0 - 1] %}
+          {% set feito = anterior.status in ('concluido', 'atual') %}
+          <line x1="{{ anterior.x }}" y1="{{ anterior.y }}" x2="{{ n.x }}" y2="{{ n.y }}"
+                stroke="{{ 'url(#trilhoFeito)' if feito else '#CBD5E1' }}"
+                stroke-width="{{ '5' if feito else '4' }}" stroke-linecap="round"
+                {% if not feito %}stroke-dasharray="2 10"{% endif %} />
+        {% endif %}
+      {% endfor %}
+
+      {% for n in nos %}
+        {% if n.status == 'concluido' %}
+          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="26" fill="url(#trilhoFeito)"/>
+          <path d="M{{ n.x - 11 }},{{ n.y }} l7,7 l13,-15" stroke="white" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        {% elif n.status == 'atual' %}
+          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="40" fill="#7C3AED" opacity="0.15"/>
+          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="40" fill="none" stroke="#7C3AED" stroke-width="2" stroke-dasharray="3 6"/>
+          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="30" fill="url(#trilhoFeito)"/>
+          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="10" fill="white"/>
+        {% else %}
+          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="24" fill="none" stroke="#CBD5E1" stroke-width="2"/>
+          <rect x="{{ n.x - 8 }}" y="{{ n.y - 2 }}" width="16" height="13" rx="2" fill="none" stroke="#CBD5E1" stroke-width="2"/>
+          <path d="M{{ n.x - 5 }},{{ n.y - 2 }} v-5 a5,5 0 0 1 10,0 v5" stroke="#CBD5E1" stroke-width="2" fill="none"/>
+        {% endif %}
+        <text x="{{ n.x }}" y="{{ n.y + (58 if n.status == 'atual' else 48) }}" text-anchor="middle" font-size="12" font-weight="700"
+              style="fill:{{ 'var(--nc-text)' if n.status != 'bloqueado' else 'var(--nc-text2)' }};font-family:Inter,sans-serif;">{{ n.nome }}</text>
+        {% if n.acessorio %}
+        <text x="{{ n.x }}" y="{{ n.y + (72 if n.status == 'atual' else 62) }}" text-anchor="middle" font-size="10" font-weight="600"
+              style="fill:var(--nc-text2);font-family:Inter,sans-serif;">+ {{ n.acessorio|capitalize }}</text>
+        {% endif %}
+      {% endfor %}
+    </svg>
+
+    <div style="text-align:center;margin-top:24px;">
+      <a href="{{ url_for('mascote_loja') }}" class="btn-outline" style="display:inline-block;padding:10px 24px;text-decoration:none;">Ver loja</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

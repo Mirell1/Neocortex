@@ -12,13 +12,16 @@ Princípios:
 - Deixar as funções de consulta prontas para serem usadas pelo ai.py.
 """
 
+import json
 import os
+from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
 
 import bcrypt
 import psycopg2
 import psycopg2.extras
+from psycopg2.extras import Json
 from dotenv import load_dotenv
 from psycopg2 import pool
 
@@ -26,6 +29,16 @@ from psycopg2 import pool
 # ============================================================
 # CONFIGURAÇÃO
 # ============================================================
+
+CONFIG_BANCO = {
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432"),
+    "dbname": os.getenv("DB_NAME", "neocortex"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "sslmode": os.getenv("DB_SSLMODE", "prefer"),
+}
+
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -37,11 +50,22 @@ CONFIG_BANCO = {
     "dbname": os.getenv("DB_NAME", "neocortex"),
     "user": os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD", ""),
+    "sslmode": os.getenv("DB_SSLMODE", "prefer"),
 }
 
-POOL_CONEXOES = pool.SimpleConnectionPool(
+def _inteiro_do_ambiente(nome, padrao):
+    try:
+        return max(1, int(os.getenv(nome, padrao)))
+    except ValueError:
+        return padrao
+
+
+# ThreadedConnectionPool: o Flask atende cada requisição em uma thread, e o
+# SimpleConnectionPool NÃO é seguro para isso. O teto é ajustável no .env
+# (DB_POOL_MAX); acima dele, getconn() levanta PoolError.
+POOL_CONEXOES = pool.ThreadedConnectionPool(
     1,
-    10,
+    _inteiro_do_ambiente("DB_POOL_MAX", 20),
     **CONFIG_BANCO,
     cursor_factory=psycopg2.extras.RealDictCursor,
     client_encoding="UTF8",
@@ -68,14 +92,30 @@ def conectar():
         conn.rollback()
         raise
     finally:
-        POOL_CONEXOES.putconn(conn)
+        POOL_CONEXOES.putconn(conn, close=bool(conn.closed))
 
 
 def criar_tabelas():
-    """Executa os schemas PostgreSQL na ordem correta."""
+    """
+    Cria o banco COMPLETO a partir do zero (banco novo e vazio).
+
+    Executa, nesta ordem, o schema original e todas as migrações. Antes,
+    só os dois primeiros arquivos rodavam, e um banco novo ficava com o
+    schema antigo (sem usuarios.trabalha/estuda e sem interacoes_chat.autor),
+    o que quebrava o cadastro e o chat.
+
+    ATENÇÃO: o ajuste de usuários faz TRUNCATE em usuarios. Aqui isso é
+    inofensivo porque a função só funciona em banco vazio (o primeiro
+    CREATE TABLE já falha se as tabelas existirem). Em um banco que já
+    tem dados, rode APENAS neocortex_aprendizado_migracao.sql (idempotente).
+    """
     arquivos_schema = (
         BASE_DIR / "neocortex_schema_postgres.sql",
         BASE_DIR / "neocortex_novas_tabelas.sql",
+        BASE_DIR / "neocortex_ajuste_usuarios.sql",
+        BASE_DIR / "neocortex_ia_migracao.sql",
+        BASE_DIR / "neocortex_aprendizado_migracao.sql",
+        BASE_DIR / "neocortex_correcoes_migracao.sql",
     )
 
     with conectar() as conn:
@@ -89,14 +129,18 @@ def criar_tabelas():
 # 1. USUÁRIOS / LOGIN
 # ============================================================
 
-def cadastrar_usuario(nome, email, senha, faixa_etaria, trabalha, estuda, turno=None):
+def cadastrar_usuario(nome, email, senha, faixa_etaria, trabalha, estuda, turno=None, senha_hash=None):
     """
     Cadastra um usuário e retorna o id criado.
+
+    Use 'senha' (texto) OU 'senha_hash' (bcrypt já calculado). O cadastro em
+    várias telas guarda só o hash na sessão, nunca a senha em texto.
     """
-    senha_hash = bcrypt.hashpw(
-        senha.encode("utf-8"),
-        bcrypt.gensalt(),
-    ).decode("utf-8")
+    if senha_hash is None:
+        senha_hash = bcrypt.hashpw(
+            senha.encode("utf-8"),
+            bcrypt.gensalt(),
+        ).decode("utf-8")
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -298,7 +342,71 @@ def listar_hobbies_usuario(id_usuario):
 # 3. TAREFAS
 # ============================================================
 
+# Se a tarefa foi recomendada "para agora" (tipo 'tarefa_agora'), só conta
+# como recomendação ACEITA se for concluída até N horas depois. Depois
+# disso a conclusão provavelmente não tem relação com a recomendação.
+JANELA_ACEITE_TAREFA_AGORA_H = 6
+
+
+def _como_datetime(valor):
+    """Aceita datetime ou texto ISO ('AAAA-MM-DDTHH:MM') e devolve datetime."""
+    if valor is None or isinstance(valor, datetime):
+        return valor
+    return datetime.fromisoformat(str(valor))
+
+
+def _registrar_evento(cur, id_tarefa, tipo_evento, detalhe=None):
+    """Grava um evento de execução NA MESMA transação da mudança de estado."""
+    cur.execute(
+        """
+        INSERT INTO eventos_execucao (id_tarefa, tipo_evento, detalhe)
+        VALUES (%s, %s, %s)
+        """,
+        (id_tarefa, tipo_evento, Json(detalhe) if detalhe is not None else None),
+    )
+
+
+def _resolver_recomendacoes_da_tarefa(cur, id_tarefa, acao, resultado, so_se_recente=False):
+    """
+    Registra a REAÇÃO do usuário nas recomendações ainda sem resultado que
+    apontam para esta tarefa (aceitou / recusou / adiou).
+
+    Só mexe em recomendações sem resultado: uma reação já registrada nunca
+    é sobrescrita por outra.
+    """
+    sql = """
+        INSERT INTO resultados_recomendacoes (id_recomendacao, acao_usuario, resultado)
+        SELECT r.id_recomendacao, %s, %s
+        FROM recomendacoes r
+        WHERE r.id_tarefa = %s
+          AND NOT EXISTS (
+              SELECT 1 FROM resultados_recomendacoes x
+              WHERE x.id_recomendacao = r.id_recomendacao
+          )
+    """
+    parametros = [acao, resultado, id_tarefa]
+    if so_se_recente:
+        sql += """
+          AND (r.tipo <> 'tarefa_agora'
+               OR LOCALTIMESTAMP - r.criado_em <= %s * INTERVAL '1 hour')
+        """
+        parametros.append(JANELA_ACEITE_TAREFA_AGORA_H)
+    cur.execute(sql, parametros)
+
+def apagar_eventos_antigos(dias=75):
+    """[LGPD] Retenção automática: eventos_execucao não guarda histórico indefinido.
+    75 dias fica no meio do intervalo (60-90) definido com o Matheus."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM eventos_execucao WHERE data_hora < NOW() - INTERVAL '%s days'",
+                (dias,),
+            )
+            return cur.rowcount
+
+
 def criar_tarefa(id_usuario, titulo, data_inicio, data_fim, categoria=None, descricao=None, origem="manual"):
+    """Cria a tarefa e registra o evento 'criou' (mesma transação)."""
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -309,10 +417,17 @@ def criar_tarefa(id_usuario, titulo, data_inicio, data_fim, categoria=None, desc
                 """,
                 (id_usuario, titulo, data_inicio, data_fim, categoria, descricao, origem),
             )
-            return cur.fetchone()["id_tarefa"]
+            id_tarefa = cur.fetchone()["id_tarefa"]
+            _registrar_evento(cur, id_tarefa, "criou", {"origem": origem})
+            return id_tarefa
 
 
-def listar_tarefas(id_usuario, status=None, data_inicio=None, data_fim=None):
+def listar_tarefas(id_usuario, status=None, data_inicio=None, data_fim=None, inicio_antes=None):
+    """
+    data_inicio: tarefas que COMEÇAM a partir de (>=).
+    inicio_antes: tarefas que começam ANTES de (<) — com data_inicio, recorta um dia/mês.
+    data_fim: tarefas que TERMINAM até (<=).
+    """
     query = "SELECT * FROM tarefas WHERE id_usuario = %s"
     parametros = [id_usuario]
     if status:
@@ -321,10 +436,63 @@ def listar_tarefas(id_usuario, status=None, data_inicio=None, data_fim=None):
     if data_inicio:
         query += " AND data_inicio >= %s"
         parametros.append(data_inicio)
+    if inicio_antes:
+        query += " AND data_inicio < %s"
+        parametros.append(inicio_antes)
     if data_fim:
         query += " AND data_fim <= %s"
         parametros.append(data_fim)
     query += " ORDER BY data_inicio"
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, parametros)
+            linhas = cur.fetchall()
+    return [dict(l) for l in linhas]
+
+
+def listar_tarefas_janela(id_usuario, inicio, fim, status=None):
+    """
+    Tarefas que SOBREPÕEM a janela [inicio, fim) — é a semântica certa para
+    "o que tenho hoje?". (listar_tarefas exige que a tarefa INTEIRA caiba
+    entre as datas; com data_fim = '2026-10-01' ela compara com meia-noite
+    e perde toda tarefa do próprio dia.)
+
+    Sem 'status', canceladas ficam de fora.
+    """
+    query = """
+        SELECT * FROM tarefas
+        WHERE id_usuario = %s
+          AND data_inicio < %s
+          AND data_fim > %s
+    """
+    parametros = [id_usuario, fim, inicio]
+    if status:
+        query += " AND status = %s"
+        parametros.append(status)
+    else:
+        query += " AND status <> 'cancelada'"
+    query += " ORDER BY data_inicio"
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, parametros)
+            linhas = cur.fetchall()
+    return [dict(l) for l in linhas]
+
+
+def listar_tarefas_abertas(id_usuario, data_fim_minima=None, limite=200):
+    """Tarefas pendentes/em andamento (opcionalmente com fim a partir de uma data)."""
+    query = """
+        SELECT * FROM tarefas
+        WHERE id_usuario = %s AND status IN ('pendente', 'em_andamento')
+    """
+    parametros = [id_usuario]
+    if data_fim_minima:
+        query += " AND data_fim >= %s"
+        parametros.append(data_fim_minima)
+    query += " ORDER BY data_inicio LIMIT %s"
+    parametros.append(limite)
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -362,7 +530,15 @@ COLUNAS_TAREFA_PERMITIDAS = {
 
 
 def atualizar_tarefa(id_tarefa, id_usuario, **campos):
-    """Atualiza somente campos permitidos de uma tarefa do usuário."""
+    """
+    Atualiza somente campos permitidos de uma tarefa do usuário.
+
+    Também alimenta o histórico (mesma transação):
+      - horário mudou para DEPOIS  -> evento 'adiou'      (+ reação 'adiou')
+      - horário mudou (outro caso) -> evento 'reagendou'
+      - status virou 'cancelada'   -> evento 'cancelou'   (+ reação 'recusou')
+    O evento guarda o horário antigo e o novo em "detalhe".
+    """
     campos = {
         chave: valor
         for chave, valor in campos.items()
@@ -377,6 +553,19 @@ def atualizar_tarefa(id_tarefa, id_usuario, **campos):
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(
+                """
+                SELECT data_inicio, data_fim, status
+                FROM tarefas
+                WHERE id_tarefa = %s AND id_usuario = %s
+                FOR UPDATE
+                """,
+                (id_tarefa, id_usuario),
+            )
+            antes = cur.fetchone()
+            if antes is None:
+                return 0
+
+            cur.execute(
                 f"""
                 UPDATE tarefas
                 SET {colunas}
@@ -385,13 +574,47 @@ def atualizar_tarefa(id_tarefa, id_usuario, **campos):
                 """,
                 valores,
             )
+
+            novo_inicio = _como_datetime(campos.get("data_inicio", antes["data_inicio"]))
+            novo_fim = _como_datetime(campos.get("data_fim", antes["data_fim"]))
+            if novo_inicio != antes["data_inicio"] or novo_fim != antes["data_fim"]:
+                tipo = "adiou" if novo_inicio > antes["data_inicio"] else "reagendou"
+                _registrar_evento(cur, id_tarefa, tipo, {
+                    "de": {"inicio": antes["data_inicio"].isoformat(), "fim": antes["data_fim"].isoformat()},
+                    "para": {"inicio": novo_inicio.isoformat(), "fim": novo_fim.isoformat()},
+                })
+                if tipo == "adiou":
+                    _resolver_recomendacoes_da_tarefa(cur, id_tarefa, "adiou", "reagendada_para_depois")
+
+            if campos.get("status") == "cancelada" and antes["status"] != "cancelada":
+                _registrar_evento(cur, id_tarefa, "cancelou")
+                _resolver_recomendacoes_da_tarefa(cur, id_tarefa, "recusou", "cancelada")
+
             return cur.rowcount
 
 
+def cancelar_tarefa(id_tarefa, id_usuario):
+    """Cancela (não apaga) a tarefa: o histórico dela continua servindo ao aprendizado."""
+    return atualizar_tarefa(id_tarefa, id_usuario, status="cancelada")
+
+
 def deletar_tarefa(id_tarefa, id_usuario):
-    """Exclui somente uma tarefa pertencente ao usuário."""
+    """
+    Exclui somente uma tarefa pertencente ao usuário.
+
+    Os eventos da tarefa somem junto (ON DELETE CASCADE), então a reação
+    'recusou' é registrada ANTES de apagar: a recomendação e o resultado
+    sobrevivem (recomendacoes.id_tarefa vira NULL).
+    """
     with conectar() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM tarefas WHERE id_tarefa = %s AND id_usuario = %s FOR UPDATE",
+                (id_tarefa, id_usuario),
+            )
+            if cur.fetchone() is None:
+                return 0
+            _resolver_recomendacoes_da_tarefa(cur, id_tarefa, "recusou", "excluida")
             cur.execute(
                 """
                 DELETE FROM tarefas
@@ -405,11 +628,28 @@ def deletar_tarefa(id_tarefa, id_usuario):
 
 def marcar_tarefa_concluida(id_tarefa, id_usuario):
     """
-    Marca a tarefa como concluída e registra o evento de execução na mesma
-    transação. Isso mantém estado atual e histórico sincronizados.
+    Marca a tarefa como concluída e, na mesma transação, registra o evento
+    'concluiu' e a reação 'aceitou' das recomendações ligadas a ela.
+
+    Chamar de novo numa tarefa que já está concluída (duplo clique) não
+    duplica evento nem altera concluido_em.
     """
     with conectar() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status FROM tarefas
+                WHERE id_tarefa = %s AND id_usuario = %s
+                FOR UPDATE
+                """,
+                (id_tarefa, id_usuario),
+            )
+            linha = cur.fetchone()
+            if linha is None:
+                return 0
+            if linha["status"] == "concluida":
+                return 1
+
             cur.execute(
                 """
                 UPDATE tarefas
@@ -420,26 +660,33 @@ def marcar_tarefa_concluida(id_tarefa, id_usuario):
                 """,
                 (id_tarefa, id_usuario),
             )
-
-            if cur.rowcount == 0:
-                return 0
-
-            cur.execute(
-                """
-                INSERT INTO eventos_execucao
-                    (id_tarefa, tipo_evento)
-                VALUES (%s, 'concluiu')
-                """,
-                (id_tarefa,),
-            )
-
+            _registrar_evento(cur, id_tarefa, "concluiu")
+            _resolver_recomendacoes_da_tarefa(cur, id_tarefa, "aceitou", "concluida", so_se_recente=True)
             return 1
 
 
 def desfazer_conclusao_tarefa(id_tarefa, id_usuario):
-    """Volta a tarefa para pendente e remove a data de conclusão."""
+    """
+    Volta a tarefa para pendente e remove a data de conclusão.
+
+    Se ela estava concluída, registra 'desfez_conclusao' (o evento
+    'concluiu' antigo não pode continuar valendo como conclusão real) e
+    retira a reação 'aceitou' que a conclusão tinha gerado.
+    """
     with conectar() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status FROM tarefas
+                WHERE id_tarefa = %s AND id_usuario = %s
+                FOR UPDATE
+                """,
+                (id_tarefa, id_usuario),
+            )
+            antes = cur.fetchone()
+            if antes is None:
+                return 0
+
             cur.execute(
                 """
                 UPDATE tarefas
@@ -450,7 +697,20 @@ def desfazer_conclusao_tarefa(id_tarefa, id_usuario):
                 """,
                 (id_tarefa, id_usuario),
             )
-            return cur.rowcount
+            if antes["status"] == "concluida":
+                _registrar_evento(cur, id_tarefa, "desfez_conclusao")
+                cur.execute(
+                    """
+                    DELETE FROM resultados_recomendacoes
+                    WHERE acao_usuario = 'aceitou'
+                      AND resultado = 'concluida'
+                      AND id_recomendacao IN (
+                          SELECT id_recomendacao FROM recomendacoes WHERE id_tarefa = %s
+                      )
+                    """,
+                    (id_tarefa,),
+                )
+            return 1
 
 
 # ============================================================
@@ -595,7 +855,7 @@ def listar_interacoes(id_usuario, contexto=None, limite=100):
         query += " AND contexto = %s"
         parametros.append(contexto)
 
-    query += " ORDER BY data_hora DESC LIMIT %s"
+    query += " ORDER BY data_hora DESC, id_interacao DESC LIMIT %s"
     parametros.append(limite)
 
     with conectar() as conn:
@@ -685,6 +945,46 @@ def obter_padrao(id_usuario, tipo_padrao):
     return dict(linha) if linha else None
 
 
+def salvar_padrao_observado(id_usuario, tipo_padrao, valor, confianca, evidencias):
+    """
+    Cria ou atualiza um padrão OBSERVADO (calculado a partir do que o usuário
+    fez), com confiança e quantidade de evidências. Fica separado do que o
+    usuário declarou: os tipos observados têm nome próprio (ex.:
+    'periodo_conclusao_observado' x 'energia', que é a declaração).
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id_padrao FROM padroes_comportamentais
+                WHERE id_usuario = %s AND tipo_padrao = %s
+                """,
+                (id_usuario, tipo_padrao),
+            )
+            existente = cur.fetchone()
+            if existente:
+                cur.execute(
+                    """
+                    UPDATE padroes_comportamentais
+                    SET valor = %s, fonte = 'observado', confianca = %s,
+                        evidencias = %s, calculado_em = CURRENT_TIMESTAMP
+                    WHERE id_padrao = %s
+                    """,
+                    (valor, confianca, evidencias, existente["id_padrao"]),
+                )
+                return existente["id_padrao"]
+            cur.execute(
+                """
+                INSERT INTO padroes_comportamentais
+                    (id_usuario, tipo_padrao, valor, fonte, confianca, evidencias)
+                VALUES (%s, %s, %s, 'observado', %s, %s)
+                RETURNING id_padrao
+                """,
+                (id_usuario, tipo_padrao, valor, confianca, evidencias),
+            )
+            return cur.fetchone()["id_padrao"]
+
+
 # ============================================================
 # 7. COMPROMISSOS
 # ============================================================
@@ -707,6 +1007,25 @@ def listar_compromissos(id_usuario):
     return [dict(linha) for linha in linhas]
 
 
+def listar_compromissos_janela(id_usuario, inicio, fim):
+    """Compromissos que sobrepõem a janela [inicio, fim)."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM compromissos
+                WHERE id_usuario = %s
+                  AND data_inicio < %s
+                  AND data_fim > %s
+                ORDER BY data_inicio
+                """,
+                (id_usuario, fim, inicio),
+            )
+            linhas = cur.fetchall()
+    return [dict(linha) for linha in linhas]
+
+
 def buscar_compromisso(id_compromisso, id_usuario):
     """Busca um compromisso garantindo que pertença ao usuário."""
     with conectar() as conn:
@@ -723,6 +1042,22 @@ def buscar_compromisso(id_compromisso, id_usuario):
             linha = cur.fetchone()
 
     return dict(linha) if linha else None
+
+
+def criar_compromisso(id_usuario, titulo, data_inicio, data_fim, tipo="outro", local=None):
+    """Cria um compromisso pertencente ao usuário e retorna o id criado."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO compromissos
+                    (id_usuario, titulo, tipo, data_inicio, data_fim, local)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id_compromisso
+                """,
+                (id_usuario, titulo, tipo, data_inicio, data_fim, local),
+            )
+            return cur.fetchone()["id_compromisso"]
 
 
 # ============================================================
@@ -764,6 +1099,86 @@ def buscar_objetivo(id_objetivo, id_usuario):
 
     return dict(linha) if linha else None
 
+
+def criar_objetivo(id_usuario, titulo, descricao=None, prazo=None):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO objetivos (id_usuario, titulo, descricao, prazo)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id_objetivo
+                """,
+                (id_usuario, titulo, descricao, prazo),
+            )
+            return cur.fetchone()["id_objetivo"]
+
+
+def atualizar_objetivo(id_objetivo, id_usuario, **campos):
+    colunas_permitidas = {"titulo", "descricao", "prazo", "status"}
+    campos = {k: v for k, v in campos.items() if k in colunas_permitidas}
+    if not campos:
+        return 0
+    colunas = ", ".join(f"{chave} = %s" for chave in campos)
+    valores = list(campos.values()) + [id_objetivo, id_usuario]
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE objetivos SET {colunas} WHERE id_objetivo = %s AND id_usuario = %s",
+                valores,
+            )
+            return cur.rowcount
+
+
+def excluir_objetivo(id_objetivo, id_usuario):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM objetivos WHERE id_objetivo = %s AND id_usuario = %s",
+                (id_objetivo, id_usuario),
+            )
+            return cur.rowcount
+
+def criar_fragmento_objetivo(id_usuario, id_objetivo, titulo, data_inicio, data_fim):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM objetivos WHERE id_objetivo = %s AND id_usuario = %s",
+                (id_objetivo, id_usuario),
+            )
+            if cur.fetchone() is None:
+                return None
+            cur.execute(
+                """
+                INSERT INTO tarefas (id_usuario, titulo, data_inicio, data_fim, origem)
+                VALUES (%s, %s, %s, %s, 'manual')
+                RETURNING id_tarefa
+                """,
+                (id_usuario, titulo, data_inicio, data_fim),
+            )
+            id_tarefa = cur.fetchone()["id_tarefa"]
+            cur.execute(
+                "INSERT INTO tarefa_objetivos (id_tarefa, id_objetivo) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (id_tarefa, id_objetivo),
+            )
+            return id_tarefa
+
+
+def listar_fragmentos_objetivo(id_objetivo, id_usuario):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.*
+                FROM tarefas t
+                JOIN tarefa_objetivos tobj ON tobj.id_tarefa = t.id_tarefa
+                JOIN objetivos o ON o.id_objetivo = tobj.id_objetivo
+                WHERE tobj.id_objetivo = %s AND o.id_usuario = %s AND t.id_usuario = %s
+                ORDER BY t.data_inicio
+                """,
+                (id_objetivo, id_usuario, id_usuario),
+            )
+            return [dict(l) for l in cur.fetchall()]
 
 # ============================================================
 # 9. HÁBITOS
@@ -923,6 +1338,26 @@ def listar_eventos_execucao(id_tarefa, id_usuario):
     return [dict(linha) for linha in linhas]
 
 
+def listar_eventos_usuario(id_usuario, desde=None):
+    """Todos os eventos de execução das tarefas do usuário (insumo do aprendizado)."""
+    query = """
+        SELECT e.*, t.categoria
+        FROM eventos_execucao e
+        JOIN tarefas t ON t.id_tarefa = e.id_tarefa
+        WHERE t.id_usuario = %s
+    """
+    parametros = [id_usuario]
+    if desde:
+        query += " AND e.data_hora >= %s"
+        parametros.append(desde)
+    query += " ORDER BY e.data_hora"
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, parametros)
+            linhas = cur.fetchall()
+    return [dict(linha) for linha in linhas]
+
+
 # ============================================================
 # 13. MÉTRICAS
 # ============================================================
@@ -936,6 +1371,27 @@ def salvar_metrica(id_usuario, nome_metrica, valor, periodo=None):
                 INSERT INTO metricas
                     (id_usuario, nome_metrica, valor, periodo_referencia)
                 VALUES (%s, %s, %s, %s)
+                RETURNING id_metrica
+                """,
+                (id_usuario, nome_metrica, valor, periodo),
+            )
+            return cur.fetchone()["id_metrica"]
+
+
+def salvar_metrica_unica(id_usuario, nome_metrica, valor, periodo):
+    """
+    Grava/atualiza a métrica de (usuário, nome, período). Recalcular não
+    cria uma linha nova a cada conclusão de tarefa (ver índice único em
+    neocortex_aprendizado_migracao.sql).
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO metricas (id_usuario, nome_metrica, valor, periodo_referencia)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (id_usuario, nome_metrica, periodo_referencia)
+                DO UPDATE SET valor = EXCLUDED.valor, calculado_em = CURRENT_TIMESTAMP
                 RETURNING id_metrica
                 """,
                 (id_usuario, nome_metrica, valor, periodo),
@@ -1016,6 +1472,70 @@ def listar_memorias(id_usuario):
     return [dict(linha) for linha in linhas]
 
 
+def listar_memorias_ativas(id_usuario, limite=20):
+    """Só as memórias vigentes (as superadas ficam guardadas, mas inativas)."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM memorias
+                WHERE id_usuario = %s AND ativa
+                ORDER BY atualizado_em DESC
+                LIMIT %s
+                """,
+                (id_usuario, limite),
+            )
+            linhas = cur.fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+def substituir_memoria(id_usuario, chave, conteudo, confianca, evidencias, origem="observado"):
+    """
+    Mantém UMA memória ativa por (usuário, chave).
+
+      - não existia           -> cria                      (retorna 'criada')
+      - mesmo conteúdo        -> só atualiza confiança/evidências ('reforcada')
+      - conteúdo diferente    -> a antiga fica inativa (histórico preservado)
+                                 e a nova entra ativa      ('substituida')
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id_memoria, conteudo FROM memorias
+                WHERE id_usuario = %s AND chave = %s AND ativa
+                FOR UPDATE
+                """,
+                (id_usuario, chave),
+            )
+            atual = cur.fetchone()
+
+            if atual and atual["conteudo"] == conteudo:
+                cur.execute(
+                    """
+                    UPDATE memorias
+                    SET confianca = %s, evidencias = %s, atualizado_em = CURRENT_TIMESTAMP
+                    WHERE id_memoria = %s
+                    """,
+                    (confianca, evidencias, atual["id_memoria"]),
+                )
+                return "reforcada"
+
+            if atual:
+                cur.execute(
+                    "UPDATE memorias SET ativa = FALSE, atualizado_em = CURRENT_TIMESTAMP WHERE id_memoria = %s",
+                    (atual["id_memoria"],),
+                )
+            cur.execute(
+                """
+                INSERT INTO memorias (id_usuario, conteudo, confianca, chave, origem, evidencias)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (id_usuario, conteudo, confianca, chave, origem, evidencias),
+            )
+            return "substituida" if atual else "criada"
+
+
 def atualizar_memoria(id_memoria, id_usuario, conteudo, confianca):
     """Atualiza uma memória somente se ela pertencer ao usuário."""
     with conectar() as conn:
@@ -1075,19 +1595,21 @@ def salvar_decisao(id_usuario, contexto, criterios, decisao):
             return cur.fetchone()["id_decisao"]
 
 
-def listar_decisoes(id_usuario):
-    """Lista as decisões do usuário das mais recentes às mais antigas."""
+def listar_decisoes(id_usuario, limite=None):
+    """Lista as decisões do usuário das mais recentes às mais antigas (limite opcional)."""
+    query = """
+        SELECT *
+        FROM decisoes
+        WHERE id_usuario = %s
+        ORDER BY criado_em DESC
+    """
+    parametros = [id_usuario]
+    if limite:
+        query += " LIMIT %s"
+        parametros.append(int(limite))
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT *
-                FROM decisoes
-                WHERE id_usuario = %s
-                ORDER BY criado_em DESC
-                """,
-                (id_usuario,),
-            )
+            cur.execute(query, parametros)
             linhas = cur.fetchall()
 
     return [dict(linha) for linha in linhas]
@@ -1097,36 +1619,126 @@ def listar_decisoes(id_usuario):
 # 17. RECOMENDAÇÕES
 # ============================================================
 
-def salvar_recomendacao(id_usuario, texto, id_decisao=None):
+def salvar_recomendacao(id_usuario, texto, id_decisao=None, id_tarefa=None, tipo="geral"):
     """
-    Salva uma recomendação. Quando houver decisão relacionada, garante que
-    essa decisão pertença ao mesmo usuário.
+    Salva uma recomendação. Decisão e tarefa informadas precisam pertencer
+    ao mesmo usuário; caso contrário nada é gravado (retorna None).
     """
     with conectar() as conn:
         with conn.cursor() as cur:
-            if id_decisao is not None:
-                cur.execute(
-                    """
-                    SELECT 1
-                    FROM decisoes
-                    WHERE id_decisao = %s
-                      AND id_usuario = %s
-                    """,
-                    (id_decisao, id_usuario),
-                )
-                if cur.fetchone() is None:
-                    return None
+            return _inserir_recomendacao(cur, id_usuario, texto, id_decisao, id_tarefa, tipo)
 
+
+def _inserir_recomendacao(cur, id_usuario, texto, id_decisao, id_tarefa, tipo):
+    if id_decisao is not None:
+        cur.execute(
+            "SELECT 1 FROM decisoes WHERE id_decisao = %s AND id_usuario = %s",
+            (id_decisao, id_usuario),
+        )
+        if cur.fetchone() is None:
+            return None
+    if id_tarefa is not None:
+        cur.execute(
+            "SELECT 1 FROM tarefas WHERE id_tarefa = %s AND id_usuario = %s",
+            (id_tarefa, id_usuario),
+        )
+        if cur.fetchone() is None:
+            return None
+
+    cur.execute(
+        """
+        INSERT INTO recomendacoes (id_decisao, id_usuario, conteudo, id_tarefa, tipo)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id_recomendacao
+        """,
+        (id_decisao, id_usuario, texto, id_tarefa, tipo),
+    )
+    return cur.fetchone()["id_recomendacao"]
+
+
+def registrar_decisao_com_recomendacao(id_usuario, contexto, criterios, decisao, texto, id_tarefa=None, tipo="geral"):
+    """Grava decisão + recomendação juntas (uma transação). Retorna (id_decisao, id_recomendacao)."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO recomendacoes
-                    (id_decisao, id_usuario, conteudo)
-                VALUES (%s, %s, %s)
-                RETURNING id_recomendacao
+                INSERT INTO decisoes (id_usuario, contexto, criterios_usados, decisao_tomada)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id_decisao
                 """,
-                (id_decisao, id_usuario, texto),
+                (id_usuario, contexto, criterios, decisao),
             )
-            return cur.fetchone()["id_recomendacao"]
+            id_decisao = cur.fetchone()["id_decisao"]
+            id_recomendacao = _inserir_recomendacao(cur, id_usuario, texto, id_decisao, id_tarefa, tipo)
+            return id_decisao, id_recomendacao
+
+
+def buscar_recomendacao_aberta_recente(id_usuario, id_tarefa, tipo, horas=2):
+    """Recomendação do mesmo tipo para a mesma tarefa, sem resultado, criada há pouco."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.*
+                FROM recomendacoes r
+                WHERE r.id_usuario = %s AND r.id_tarefa = %s AND r.tipo = %s
+                  AND LOCALTIMESTAMP - r.criado_em <= %s * INTERVAL '1 hour'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM resultados_recomendacoes x
+                      WHERE x.id_recomendacao = r.id_recomendacao
+                  )
+                ORDER BY r.criado_em DESC
+                LIMIT 1
+                """,
+                (id_usuario, id_tarefa, tipo, horas),
+            )
+            linha = cur.fetchone()
+    return dict(linha) if linha else None
+
+
+def listar_recomendacoes_sem_resultado(id_usuario):
+    """
+    Recomendações ligadas a uma tarefa e ainda sem reação registrada, com o
+    estado atual da tarefa. É o que o aprendizado varre para fechar
+    recomendações vencidas como 'ignorou'.
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.*, t.status AS tarefa_status, t.data_fim AS tarefa_data_fim,
+                       t.concluido_em AS tarefa_concluido_em
+                FROM recomendacoes r
+                JOIN tarefas t ON t.id_tarefa = r.id_tarefa
+                WHERE r.id_usuario = %s
+                  AND NOT EXISTS (
+                      SELECT 1 FROM resultados_recomendacoes x
+                      WHERE x.id_recomendacao = r.id_recomendacao
+                  )
+                ORDER BY r.criado_em
+                """,
+                (id_usuario,),
+            )
+            linhas = cur.fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+def contar_resultados_recomendacoes(id_usuario):
+    """{'aceitou': n, 'recusou': n, 'adiou': n, 'ignorou': n} das recomendações do usuário."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT rr.acao_usuario, COUNT(*) AS n
+                FROM resultados_recomendacoes rr
+                JOIN recomendacoes r ON r.id_recomendacao = rr.id_recomendacao
+                WHERE r.id_usuario = %s
+                GROUP BY rr.acao_usuario
+                """,
+                (id_usuario,),
+            )
+            linhas = cur.fetchall()
+    return {linha["acao_usuario"]: linha["n"] for linha in linhas}
 
 
 def listar_recomendacoes(id_usuario):
@@ -1233,6 +1845,100 @@ def buscar_planejamento_tarefa(id_tarefa, id_usuario):
 
 
 # ============================================================
+# AÇÃO PENDENTE DE CONFIRMAÇÃO (conflito de agenda)
+# Quando a IA pergunta "confirma mesmo assim?", a ação fica guardada aqui. O "sim"
+# seguinte executa exatamente ela, sem depender do modelo reescrever o comando.
+# Uma linha por usuário; vale por poucos minutos.
+# ============================================================
+def salvar_acoes_pendentes(id_usuario, acoes):
+    """Substitui as ações pendentes do usuário (lista de dicts JSON-serializáveis)."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO acoes_pendentes (id_usuario, acoes, criado_em)
+                VALUES (%s, %s::jsonb, CURRENT_TIMESTAMP)
+                ON CONFLICT (id_usuario)
+                DO UPDATE SET acoes = EXCLUDED.acoes, criado_em = CURRENT_TIMESTAMP
+                """,
+                (id_usuario, json.dumps(acoes, ensure_ascii=False)),
+            )
+
+
+def buscar_acoes_pendentes(id_usuario, max_idade_min=15):
+    """Ações pendentes ainda válidas (lista) ou None."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT acoes
+                FROM acoes_pendentes
+                WHERE id_usuario = %s
+                  AND criado_em >= CURRENT_TIMESTAMP - make_interval(mins => %s)
+                """,
+                (id_usuario, int(max_idade_min)),
+            )
+            linha = cur.fetchone()
+    return linha["acoes"] if linha else None
+
+
+def apagar_acoes_pendentes(id_usuario):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM acoes_pendentes WHERE id_usuario = %s", (id_usuario,))
+
+
+def enriquecer_tarefas(id_usuario, tarefas):
+    """
+    Acrescenta a cada tarefa (dict) os campos que o motor de decisão usa e
+    que não existem na tabela 'tarefas', em UMA consulta para a lista toda:
+
+      prioridade           'baixa' | 'media' | 'alta' (tarefa_planejamento) ou None
+      objetivo_prazo       menor prazo entre os objetivos em andamento ligados à tarefa
+      dependencia_pendente True se algum pré-requisito ainda está aberto
+
+    (tarefa_dependencias.id_tarefa depende de id_tarefa_dependente.)
+    Devolve a mesma lista; sem dados nessas tabelas, os campos ficam None/False.
+    """
+    ids = [t["id_tarefa"] for t in tarefas]
+    if not ids:
+        return tarefas
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.id_tarefa,
+                       (SELECT tp.prioridade
+                          FROM tarefa_planejamento tp
+                         WHERE tp.id_tarefa = t.id_tarefa
+                         ORDER BY tp.id_planejamento DESC LIMIT 1) AS prioridade,
+                       (SELECT MIN(o.prazo)
+                          FROM tarefa_objetivos tob
+                          JOIN objetivos o ON o.id_objetivo = tob.id_objetivo
+                         WHERE tob.id_tarefa = t.id_tarefa
+                           AND o.id_usuario = t.id_usuario
+                           AND o.status = 'em_andamento') AS objetivo_prazo,
+                       EXISTS (SELECT 1
+                                 FROM tarefa_dependencias d
+                                 JOIN tarefas pre ON pre.id_tarefa = d.id_tarefa_dependente
+                                WHERE d.id_tarefa = t.id_tarefa
+                                  AND pre.status IN ('pendente', 'em_andamento')) AS dependencia_pendente
+                  FROM tarefas t
+                 WHERE t.id_usuario = %s
+                   AND t.id_tarefa = ANY(%s)
+                """,
+                (id_usuario, ids),
+            )
+            extras = {linha["id_tarefa"]: linha for linha in cur.fetchall()}
+    for t in tarefas:
+        e = extras.get(t["id_tarefa"]) or {}
+        t["prioridade"] = e.get("prioridade")
+        t["objetivo_prazo"] = e.get("objetivo_prazo")
+        t["dependencia_pendente"] = bool(e.get("dependencia_pendente"))
+    return tarefas
+
+
+# ============================================================
 # 20. RELAÇÃO TAREFA ↔ OBJETIVOS
 # ============================================================
 
@@ -1291,3 +1997,19 @@ def listar_dependencias_da_tarefa(id_tarefa, id_usuario):
             linhas = cur.fetchall()
 
     return [dict(linha) for linha in linhas]
+
+
+def calcular_pontos_mascote(id_usuario):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM tarefas WHERE id_usuario = %s AND status = 'concluida'",
+                (id_usuario,),
+            )
+            tarefas = cur.fetchone()["n"]
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM objetivos WHERE id_usuario = %s AND status = 'concluido'",
+                (id_usuario,),
+            )
+            objetivos = cur.fetchone()["n"]
+    return tarefas * 10 + objetivos * 50

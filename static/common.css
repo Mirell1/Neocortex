@@ -251,3 +251,33 @@ a.app-sidebar-link { text-decoration: none; }
 
 .cal-now { position: absolute; left: 0; right: 0; height: 2px; background: #EF4444; z-index: 2; pointer-events: none; }
 .cal-now::before { content: ''; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #EF4444; }
+
+/* ---------- tamanho de fonte ---------- */
+html[data-fonte="grande"] .app-shell { zoom: 1.15; }
+html[data-fonte="maior"] .app-shell { zoom: 1.3; }
+
+/* ---------- alto contraste ---------- */
+html[data-contraste="alto"] {
+  --nc-text: #000000;
+  --nc-text2: #1a1a1a;
+  --nc-border: #000000;
+  --nc-surface: #ffffff;
+  --nc-bg: #ffffff;
+}
+html[data-contraste="alto"].dark {
+  --nc-text: #ffffff;
+  --nc-text2: #f0f0f0;
+  --nc-border: #ffffff;
+  --nc-surface: #000000;
+  --nc-bg: #000000;
+}
+html[data-contraste="alto"] .nc-card,
+html[data-contraste="alto"] .nc-input,
+html[data-contraste="alto"] .btn-outline {
+  border-width: 2px !important;
+}
+
+/* ---------- fonte para dislexia ---------- */
+html[data-tipografia="dislexia"] body {
+  font-family: 'Lexend', sans-serif !important;
+}

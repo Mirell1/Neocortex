@@ -12,12 +12,9 @@
     {% endif %}
 
     <div class="nc-card" style="padding:28px;">
-      <h3
-        style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">
-        Perfil</h3>
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Perfil</h3>
       <div style="display:flex;align-items:center;gap:20px;">
-        <div
-          style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg, #2563EB, #7C3AED);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:white;flex-shrink:0;">
+        <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg, #2563EB, #7C3AED);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:white;flex-shrink:0;">
           {{ inicial_usuario }}</div>
         <div style="flex:1;">
           <p style="margin:0;font-size:18px;font-weight:800;color:var(--nc-text);">{{ session.nome }}</p>
@@ -27,10 +24,56 @@
     </div>
 
     <div class="nc-card" style="padding:28px;">
-      <h3
-        style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">
-        Aparência</h3>
-      <div style="display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Seu progresso</h3>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+        <p style="margin:0;font-size:16px;font-weight:800;color:var(--nc-text);">{{ mascote_nivel.nome }}</p>
+        <p style="margin:0;font-size:13px;font-weight:700;color:var(--nc-text2);">{{ mascote_pontos }} pontos</p>
+      </div>
+      <div style="height:8px;border-radius:4px;background:var(--nc-border);margin-bottom:8px;">
+        <div style="height:100%;border-radius:4px;background:linear-gradient(90deg,#2563EB,#7C3AED);width:{{ mascote_progresso_pct }}%;"></div>
+      </div>
+      {% if mascote_proximo_nivel %}
+      <p style="margin:0 0 18px;font-size:12px;font-weight:500;color:var(--nc-text2);">Faltam {{ mascote_proximo_nivel.pontos_min - mascote_pontos }} pontos para "{{ mascote_proximo_nivel.nome }}"</p>
+      {% else %}
+      <p style="margin:0 0 18px;font-size:12px;font-weight:500;color:var(--nc-text2);">Nível máximo alcançado</p>
+      {% endif %}
+      <p style="margin:0;font-size:11px;font-weight:700;color:var(--nc-text2);text-transform:uppercase;letter-spacing:0.5px;">Como pontuar</p>
+      <p style="margin:4px 0 0;font-size:12.5px;font-weight:500;color:var(--nc-text2);line-height:1.6;">+10 por tarefa concluída · +50 por objetivo concluído</p>
+    </div>
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Acessibilidade</h3>
+      <form method="POST" action="{{ url_for('salvar_acessibilidade') }}" onchange="this.submit()">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div style="margin-bottom:18px;">
+          <label class="nc-label">Tamanho da fonte</label>
+          <select class="nc-input" name="acess_fonte">
+            <option value="normal" {{ 'selected' if acess_fonte == 'normal' }}>Normal</option>
+            <option value="grande" {{ 'selected' if acess_fonte == 'grande' }}>Grande</option>
+            <option value="maior" {{ 'selected' if acess_fonte == 'maior' }}>Maior ainda</option>
+          </select>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Alto contraste</p>
+          <input type="checkbox" name="acess_contraste" value="alto" {{ 'checked' if acess_contraste == 'alto' }}
+                 onchange="this.form.querySelector('[name=acess_contraste_oculto]').value = this.checked ? 'alto' : 'normal'; this.form.submit();">
+          <input type="hidden" name="acess_contraste_oculto" value="{{ acess_contraste }}">
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Fonte para dislexia (Lexend)</p>
+          <input type="checkbox" name="acess_tipografia" value="dislexia" {{ 'checked' if acess_tipografia == 'dislexia' }}
+                 onchange="this.form.querySelector('[name=acess_tipografia_oculto]').value = this.checked ? 'dislexia' : 'padrao'; this.form.submit();">
+          <input type="hidden" name="acess_tipografia_oculto" value="{{ acess_tipografia }}">
+        </div>
+      </form>
+    </div>
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Aparência</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:{{ '18px' if mascote_ativo else '0' }};">
         <div>
           <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Modo escuro</p>
         </div>
@@ -38,14 +81,22 @@
           <div class="knob"></div>
         </div>
       </div>
+      {% if mascote_ativo %}
+      <form method="POST" action="{{ url_for('salvar_mascote') }}" style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="nc-label" for="mascote_animacao">Animações do mascote</label>
+        <select class="nc-input" id="mascote_animacao" name="mascote_animacao" onchange="this.form.submit()">
+          <option value="completa" {{ 'selected' if mascote_intensidade == 'completa' }}>Completas</option>
+          <option value="reduzida" {{ 'selected' if mascote_intensidade == 'reduzida' }}>Reduzidas</option>
+          <option value="desligada" {{ 'selected' if mascote_intensidade == 'desligada' }}>Sem animação</option>
+        </select>
+      </form>
+      {% endif %}
     </div>
 
     <div class="nc-card" style="padding:28px;">
-      <h3
-        style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">
-        Conta</h3>
-      <div class="settings-row-click" id="rowSenha"
-        style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Conta</h3>
+      <div class="settings-row-click" id="rowSenha" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
         <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Alterar senha</p>
         <span style="color:var(--nc-text2);">›</span>
       </div>
@@ -53,25 +104,21 @@
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;">
         <div>
           <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Notificações</p>
-          <p style="margin:0;font-size:11px;color:var(--nc-text2);">Preferência salva — o envio ainda está sendo
-            construído.</p>
+          <p style="margin:0;font-size:11px;color:var(--nc-text2);">Preferência salva — o envio ainda está sendo construído.</p>
         </div>
         <form method="POST" action="{{ url_for('salvar_notificacoes') }}" style="margin:0;">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="checkbox" name="notificacoes_ativas" {{ 'checked' if notificacoes_ativas else '' }}
-            onchange="this.form.submit()">
+          <input type="checkbox" name="notificacoes_ativas" {{ 'checked' if notificacoes_ativas else '' }} onchange="this.form.submit()">
         </form>
       </div>
       <div style="height:1px;background:var(--nc-border);"></div>
-      <div id="rowExcluirConta" class="settings-row-click"
-        style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+      <div id="rowExcluirConta" class="settings-row-click" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
         <p style="margin:0;font-size:14px;font-weight:700;color:#EF4444;">Excluir conta</p>
         <span style="color:var(--nc-text2);">›</span>
       </div>
       <div style="height:1px;background:var(--nc-border);"></div>
       <a href="{{ url_for('exportar_dados') }}" style="text-decoration:none;">
-        <div class="settings-row-click"
-          style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+        <div class="settings-row-click" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
           <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Exportar meus dados</p>
           <span style="color:var(--nc-text2);">›</span>
         </div>
@@ -112,7 +159,6 @@
     document.getElementById('formTrocarSenha').submit();
   });
 
-  // Modo escuro — só nesta página por enquanto (preferência local do navegador)
   const toggle = document.getElementById('toggleDark');
   const DARK_KEY = 'neocortex_dark';
   if (localStorage.getItem(DARK_KEY) === 'true') {
@@ -124,18 +170,19 @@
     toggle.classList.toggle('on', ligado);
     localStorage.setItem(DARK_KEY, ligado);
   });
+
   document.getElementById('rowExcluirConta').addEventListener('click', function () {
-  const senha = prompt('Digite sua senha para confirmar a exclusão da conta. Essa ação não pode ser desfeita:');
-  if (senha === null) return;
-  const form = document.createElement('form');
-  form.method = 'POST';
-  form.action = "{{ url_for('excluir_conta') }}";
-  form.innerHTML = `
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="senha_atual" value="${senha.replace(/"/g, '&quot;')}">
-  `;
-  document.body.appendChild(form);
-  form.submit();
-});
+    const senha = prompt('Digite sua senha para confirmar a exclusão da conta. Essa ação não pode ser desfeita:');
+    if (senha === null) return;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = "{{ url_for('excluir_conta') }}";
+    form.innerHTML = `
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="senha_atual" value="${senha.replace(/"/g, '&quot;')}">
+    `;
+    document.body.appendChild(form);
+    form.submit();
+  });
 </script>
 {% endblock %}

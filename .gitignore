@@ -1,4 +1,15 @@
+# Segredos e configuração local
 .env
-desktop.ini
+
+# Python
 __pycache__/
+*.pyc
 .venv/
+venv/
+.pytest_cache/
+
+# Saída da análise (gerada por analise_energia.py)
+analise_saida/
+
+# Windows
+desktop.ini

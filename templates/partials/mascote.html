@@ -1,0 +1,15 @@
+{# Mascote do NEOCORTEX
+   Normal (dashboard, telas principais):  {% include "partials/mascote.html" %}
+   Avatar (cabeçalho do assistente):      {% with mascote_modo='avatar' %}{% include "partials/mascote.html" %}{% endwith %}
+   Variáveis opcionais vindas da rota (ex.: de preferencias):
+     mascote_intensidade: 'completa' | 'reduzida' | 'desligada'  (vazio = segue prefers-reduced-motion)
+     mascote_acessorio:   'gorro' | 'oculos' | 'cachecol'          (vazio = nenhum)
+   Inclua o CSS e o JS uma vez por página (ex.: no base_app_novo.html) se usar os dois modos.
+   Se a gamificação estiver desligada (GAMIFICACAO_ATIVA), não inclua este partial. #}
+{# Mascote do NEOCORTEX — só a marcação; CSS/JS já são carregados uma vez em base_app_novo.html #}
+<div data-nc-mascote
+     data-modo="{{ mascote_modo|default('normal', true) }}"
+     data-intensidade="{{ mascote_intensidade|default('', true) }}"
+     data-acessorio="{{ mascote_acessorio|default('', true) }}"
+     data-assistente-url="{{ url_for('assistente') }}"
+     {% if mascote_estatico %}data-estatico{% endif %}></div>

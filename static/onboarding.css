@@ -97,6 +97,29 @@ body {
 .neo-line { width: 54px; height: 3px; margin-top: 30px; border-radius: 99px; background: linear-gradient(90deg, #2563EB, #7C3AED); }
 .neo-caption { max-width: 310px; margin: 16px 0 0; color: var(--nc-text2); font-size: 11.5px; line-height: 1.6; font-weight: 600; }
 
+/* ---------- objetivo ---------- */
+
+.objetivos-lista {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.objetivo-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--nc-border);
+  border-radius: 12px;
+  background: var(--nc-surface);
+}
+.objetivo-item-titulo { flex: 1; font-size: 14px; font-weight: 700; color: var(--nc-text); }
+.objetivo-item-prazo { font-size: 12px; font-weight: 600; color: var(--nc-text2); }
+.objetivo-item-remove { background: none; border: none; color: var(--nc-text2); font-size: 14px; cursor: pointer; }
+
 /* ---------- pergunta ---------- */
 .question-panel { width: 100%; max-width: 700px; }
 .question-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 13px; color: var(--nc-blue); font-size: 12px; font-weight: 800; }

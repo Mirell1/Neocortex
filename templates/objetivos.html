@@ -1,0 +1,232 @@
+{% extends "base_app_novo.html" %}
+{% block conteudo %}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<div style="padding:32px;">
+  <div style="display:flex;flex-direction:column;gap:14px;">
+    {% for o in objetivos %}
+      {% set fragmentos = db_fragmentos.get(o.id_objetivo, []) %}
+      {% set concluidos = fragmentos | selectattr('status', 'equalto', 'concluida') | list | length %}
+      <div class="nc-card" style="padding:0;overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:16px;padding:18px 24px;">
+          <div style="flex:1;min-width:0;">
+            <p style="margin:0 0 2px;font-size:15px;font-weight:700;color:var(--nc-text);{{ 'text-decoration:line-through;opacity:0.5;' if o.status == 'concluido' else '' }}">{{ o.titulo }}</p>
+            <p style="margin:0;font-size:12px;font-weight:500;color:var(--nc-text2);">
+              {% if o.prazo %}Prazo: {{ o.prazo.strftime('%d/%m/%Y') }} · {% endif %}
+              {% if fragmentos %}{{ concluidos }}/{{ fragmentos|length }} fragmentos concluídos{% else %}Sem fragmentos ainda{% endif %}
+            </p>
+            {% if fragmentos %}
+            <div style="height:5px;border-radius:3px;background:var(--nc-border);margin-top:8px;max-width:260px;">
+              <div style="height:100%;border-radius:3px;background:linear-gradient(90deg,#2563EB,#7C3AED);width:{{ (concluidos / fragmentos|length * 100)|round|int }}%;"></div>
+            </div>
+            {% endif %}
+          </div>
+          <span class="badge" style="background:{{ '#22C55E18' if o.status == 'concluido' else '#2563EB18' }};color:{{ '#22C55E' if o.status == 'concluido' else '#2563EB' }};">{{ o.status }}</span>
+          <button type="button" onclick="document.getElementById('fragmentos{{ o.id_objetivo }}').classList.toggle('hidden')" class="btn-ghost-sm">Fragmentos</button>
+          <button type="button" onclick="document.getElementById('modalEditarObjetivo{{ o.id_objetivo }}').classList.remove('hidden')" style="background:none;border:none;color:var(--nc-text2);font-size:15px;cursor:pointer;">✎</button>
+          {% if o.status != 'concluido' %}
+          <form method="POST" action="{{ url_for('concluir_objetivo_rota', id_objetivo=o.id_objetivo) }}" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" style="background:none;border:none;color:var(--nc-text2);font-size:15px;cursor:pointer;">✓</button>
+          </form>
+          {% else %}
+          <form method="POST" action="{{ url_for('desfazer_objetivo_rota', id_objetivo=o.id_objetivo) }}" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" style="background:none;border:none;color:var(--nc-text2);font-size:12px;font-weight:700;cursor:pointer;">↺</button>
+          </form>
+          {% endif %}
+          <form method="POST" action="{{ url_for('excluir_objetivo_rota', id_objetivo=o.id_objetivo) }}" style="margin:0;" onsubmit="return confirm('Excluir este objetivo?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" style="background:none;border:none;color:var(--nc-text2);font-size:15px;cursor:pointer;">✕</button>
+          </form>
+        </div>
+
+        <div id="fragmentos{{ o.id_objetivo }}" class="hidden" style="border-top:1px solid var(--nc-border);padding:16px 24px;background:var(--nc-bg);">
+          <button type="button" class="btn-outline" onclick="abrirFragmentacaoAutomatica({{ o.id_objetivo }}, '{{ o.titulo|e }}')" style="width:100%;height:40px;margin-bottom:14px;">✨ Fragmentar automaticamente</button>
+
+          {% for f in fragmentos %}
+            <div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
+              <form method="POST" action="{{ url_for('desfazer_tarefa', id_tarefa=f.id_tarefa) if f.status == 'concluida' else url_for('concluir_tarefa', id_tarefa=f.id_tarefa) }}" style="margin:0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" style="width:18px;height:18px;border-radius:5px;border:2px solid {{ '#22C55E' if f.status == 'concluida' else 'var(--nc-border)' }};background:{{ '#22C55E' if f.status == 'concluida' else 'transparent' }};color:white;font-size:10px;cursor:pointer;">{{ '✓' if f.status == 'concluida' else '' }}</button>
+              </form>
+              <span style="flex:1;font-size:13px;font-weight:600;color:var(--nc-text);{{ 'text-decoration:line-through;opacity:0.5;' if f.status == 'concluida' else '' }}">{{ f.titulo }}</span>
+              <span style="font-size:11px;font-weight:500;color:var(--nc-text2);">{{ f.data_inicio.strftime('%d/%m %H:%M') }}</span>
+            </div>
+          {% else %}
+            <p style="margin:0 0 10px;font-size:12px;color:var(--nc-text2);">Nenhum fragmento ainda — divida esse objetivo em passos pequenos, com data, e eles aparecem na sua Agenda normalmente.</p>
+          {% endfor %}
+
+          <form method="POST" action="{{ url_for('criar_fragmento_rota', id_objetivo=o.id_objetivo) }}" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input class="nc-input" type="text" name="titulo" placeholder="Novo fragmento..." required style="flex:1;min-width:180px;height:38px;">
+            <input class="nc-input" type="date" name="data" required style="width:150px;height:38px;">
+            <input class="nc-input" type="time" name="hora" value="09:00" style="width:110px;height:38px;">
+            <button type="submit" class="chip">+ Adicionar</button>
+          </form>
+        </div>
+      </div>
+
+      <div id="modalEditarObjetivo{{ o.id_objetivo }}" class="modal-overlay hidden">
+        <div class="modal-box">
+          <h3 style="margin:0 0 18px;font-size:18px;font-weight:800;color:var(--nc-text);">Editar objetivo</h3>
+          <form method="POST" action="{{ url_for('editar_objetivo_rota', id_objetivo=o.id_objetivo) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div style="margin-bottom:16px;"><label class="nc-label">Título</label><input class="nc-input" type="text" name="titulo" value="{{ o.titulo }}" required></div>
+            <div style="margin-bottom:16px;"><label class="nc-label">Prazo (opcional)</label><input class="nc-input" type="date" name="prazo" value="{{ o.prazo.strftime('%Y-%m-%d') if o.prazo else '' }}"></div>
+            <button type="submit" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Salvar alterações</button>
+            <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalEditarObjetivo{{ o.id_objetivo }}').classList.add('hidden')">Cancelar</button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <p style="padding:24px;text-align:center;font-size:13px;font-weight:600;color:var(--nc-text2);">Nenhum objetivo ainda. Clica no + pra criar um.</p>
+    {% endfor %}
+  </div>
+
+  <button class="fab" onclick="document.getElementById('modalObjetivo').classList.remove('hidden')">+</button>
+
+  <div id="modalObjetivo" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3 style="margin:0 0 18px;font-size:18px;font-weight:800;color:var(--nc-text);">Novo objetivo</h3>
+      <form method="POST" action="{{ url_for('criar_objetivo_rota') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div style="margin-bottom:16px;"><label class="nc-label">Título</label><input id="novoObjetivoTitulo" class="nc-input" type="text" name="titulo" required></div>
+        <div style="margin-bottom:16px;"><label class="nc-label">Prazo (opcional)</label><input id="novoObjetivoPrazo" class="nc-input" type="date" name="prazo"></div>
+        <button type="button" class="btn-outline" onclick="abrirFragmentacaoAutomaticaNovo()" style="width:100%;height:44px;margin-bottom:10px;">✨ Criar e fragmentar automaticamente</button>
+        <button type="submit" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Salvar</button>
+        <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalObjetivo').classList.add('hidden')">Cancelar</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="modalFragAuto" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:480px;">
+    <div id="fragAutoPerguntas">
+      <h3 style="margin:0 0 18px;font-size:18px;font-weight:800;color:var(--nc-text);">Duas perguntas rápidas</h3>
+      <div style="margin-bottom:16px;">
+        <label class="nc-label">Foco principal</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;" data-chip-group="foco">
+          <button type="button" class="chip" data-value="teoria">Teoria / estudo</button>
+          <button type="button" class="chip" data-value="pratica">Prática / exercícios</button>
+          <button type="button" class="chip" data-value="revisao">Revisão</button>
+          <button type="button" class="chip" data-value="geral">Geral</button>
+        </div>
+      </div>
+      <div style="margin-bottom:20px;">
+        <label class="nc-label">Ritmo preferido</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;" data-chip-group="ritmo">
+          <button type="button" class="chip" data-value="curto_frequente">Curto e frequente</button>
+          <button type="button" class="chip" data-value="longo_espacado">Longo e espaçado</button>
+          <button type="button" class="chip" data-value="moderado">Moderado</button>
+        </div>
+      </div>
+      <button type="button" id="btnGerarFragmentos" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Gerar sugestão</button>
+      <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalFragAuto').classList.add('hidden')">Cancelar</button>
+    </div>
+    <div id="fragAutoPreview" class="hidden"></div>
+  </div>
+</div>
+
+<script>
+  let fragAutoContexto = null; // { tipo: 'existente', idObjetivo } | { tipo: 'novo', titulo, prazo }
+
+  function abrirFragmentacaoAutomatica(idObjetivo, titulo) {
+    fragAutoContexto = { tipo: 'existente', idObjetivo };
+    document.getElementById('fragAutoPerguntas').classList.remove('hidden');
+    document.getElementById('fragAutoPreview').classList.add('hidden');
+    document.getElementById('fragAutoPreview').innerHTML = '';
+    document.querySelectorAll('[data-chip-group] .chip').forEach(c => c.classList.remove('active'));
+    document.getElementById('modalFragAuto').classList.remove('hidden');
+  }
+
+  function abrirFragmentacaoAutomaticaNovo() {
+    const titulo = document.getElementById('novoObjetivoTitulo').value.trim();
+    if (!titulo) { alert('Digite um título antes de fragmentar.'); return; }
+    const prazo = document.getElementById('novoObjetivoPrazo').value || null;
+    fragAutoContexto = { tipo: 'novo', titulo, prazo };
+    document.getElementById('modalObjetivo').classList.add('hidden');
+    document.getElementById('fragAutoPerguntas').classList.remove('hidden');
+    document.getElementById('fragAutoPreview').classList.add('hidden');
+    document.getElementById('fragAutoPreview').innerHTML = '';
+    document.querySelectorAll('[data-chip-group] .chip').forEach(c => c.classList.remove('active'));
+    document.getElementById('modalFragAuto').classList.remove('hidden');
+  }
+
+  document.getElementById('btnGerarFragmentos').addEventListener('click', async function () {
+    const foco = document.querySelector('[data-chip-group="foco"] .chip.active')?.dataset.value || 'geral';
+    const ritmo = document.querySelector('[data-chip-group="ritmo"] .chip.active')?.dataset.value || 'moderado';
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Gerando...';
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    const form = new URLSearchParams({ foco, ritmo, csrf_token: csrfToken });
+
+    let url;
+    if (fragAutoContexto.tipo === 'novo') {
+      url = '/objetivos/novo/fragmentar/previa';
+      form.set('titulo', fragAutoContexto.titulo);
+      if (fragAutoContexto.prazo) form.set('prazo', fragAutoContexto.prazo);
+    } else {
+      url = `/objetivos/${fragAutoContexto.idObjetivo}/fragmentar/previa`;
+    }
+
+    try {
+      const resp = await fetch(url, { method: 'POST', body: form });
+      const dados = await resp.json();
+      btn.disabled = false;
+      btn.textContent = 'Gerar sugestão';
+      if (!resp.ok) { alert(dados.erro || 'Algo deu errado.'); return; }
+      mostrarPreviaFragmentos(dados.propostas);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Gerar sugestão';
+      alert('Não foi possível conectar ao servidor.');
+    }
+  });
+
+  function mostrarPreviaFragmentos(propostas) {
+    document.getElementById('fragAutoPerguntas').classList.add('hidden');
+    const preview = document.getElementById('fragAutoPreview');
+    preview.classList.remove('hidden');
+
+    const itens = propostas.map(function (p) {
+      const data = new Date(p.inicio);
+      const dataFmt = data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      const horaFmt = data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      return `<li style="padding:10px 0;border-bottom:1px solid var(--nc-border);display:flex;justify-content:space-between;">
+        <span style="font-size:13px;font-weight:600;color:var(--nc-text);">${p.titulo}</span>
+        <span style="font-size:12px;font-weight:600;color:var(--nc-text2);">${dataFmt} · ${horaFmt}</span>
+      </li>`;
+    }).join('');
+
+    preview.innerHTML = `
+      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800;color:var(--nc-text);">Proposta — ${propostas.length} fragmentos</h3>
+      <ul style="list-style:none;margin:0 0 20px;padding:0;max-height:280px;overflow-y:auto;">${itens}</ul>
+      <button type="button" id="btnConfirmarFragmentos" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Adicionar à agenda</button>
+      <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalFragAuto').classList.add('hidden')">Cancelar</button>
+    `;
+
+    document.getElementById('btnConfirmarFragmentos').addEventListener('click', async function () {
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+      this.disabled = true;
+      this.textContent = 'Adicionando...';
+
+      let url, body;
+      const headers = { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken };
+      if (fragAutoContexto.tipo === 'novo') {
+        url = '/objetivos/novo/fragmentar/confirmar';
+        body = JSON.stringify({ titulo_objetivo: fragAutoContexto.titulo, prazo: fragAutoContexto.prazo, propostas });
+      } else {
+        url = `/objetivos/${fragAutoContexto.idObjetivo}/fragmentar/confirmar`;
+        body = JSON.stringify(propostas);
+      }
+
+      const resp = await fetch(url, { method: 'POST', headers, body });
+      const dados = await resp.json();
+      if (dados.redirect) window.location.href = dados.redirect;
+    });
+  }
+</script>
+{% endblock %}

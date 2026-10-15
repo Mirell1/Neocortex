@@ -21,10 +21,8 @@
 </div>
 
 <script>
-  /* ---------- dados reais, buscados uma vez ---------- */
-  let TAREFAS = [];
-  let ROTINA = [];
-  const NUMERO_PARA_DIA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+  /* ---------- dados reais, buscados sob demanda por intervalo ---------- */
+  let EVENTOS = [];
 
   /* ---------- constantes ---------- */
   const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -59,36 +57,53 @@
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function dateKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
   function parseKey(key) { const p = key.split('-'); return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10)); }
-  function toMin(hhmm) { const p = hhmm.split(':'); return parseInt(p[0], 10) * 60 + parseInt(p[1], 10); }
   function fmtMin(m) { return pad(Math.floor(m / 60)) + ':' + pad(m % 60); }
   function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
-  /* ---------- itens reais de uma data (tarefas + rotina fixa) ---------- */
+  /* ---------- intervalo de datas necessário para a visão atual ---------- */
+  function mesGridRange(c) {
+    const viewYear = c.getFullYear(), viewMonth = c.getMonth();
+    const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const start = new Date(viewYear, viewMonth, 1 - firstDayOfMonth);
+    const totalRows = Math.ceil((firstDayOfMonth + daysInMonth) / 7);
+    return [start, addDays(start, totalRows * 7 - 1)];
+  }
+
+  function rangeParaView() {
+    if (activeTab === 'Mês') return mesGridRange(cursor);
+    if (activeTab === 'Semana') { const s = startOfWeek(cursor); return [s, addDays(s, 6)]; }
+    return [cursor, cursor];
+  }
+
+  async function carregarEventos(inicio, fim) {
+    const url = "{{ url_for('api_eventos') }}?inicio=" + dateKey(inicio) + "&fim=" + dateKey(fim);
+    try {
+      const resposta = await fetch(url);
+      const dados = await resposta.json();
+      EVENTOS = Array.isArray(dados) ? dados : [];
+    } catch (e) {
+      EVENTOS = [];
+    }
+  }
+
+  /* ---------- itens reais de uma data ---------- */
   function itemsForDate(date) {
     const key = dateKey(date);
-    const weekdayName = NUMERO_PARA_DIA[date.getDay()];
     const items = [];
-
-    TAREFAS.forEach(function (t) {
-      const inicio = new Date(t.data_inicio);
+    EVENTOS.forEach(function (e) {
+      const inicio = new Date(e.inicio);
       if (dateKey(inicio) !== key) return;
-      const fim = new Date(t.data_fim);
+      const fim = new Date(e.fim);
+      const cor = e.cor || '#2563EB';
       items.push({
-        kind: 'tarefa', label: t.titulo, color: t.cor, bg: t.cor + '22',
+        kind: e.tipo === 'tarefa' ? 'tarefa' : 'fixo',
+        label: e.titulo, color: cor, bg: cor + '22',
         startMin: inicio.getHours() * 60 + inicio.getMinutes(),
         endMin: fim.getHours() * 60 + fim.getMinutes(),
-        done: t.concluida
+        done: e.status === 'concluida'
       });
     });
-
-    ROTINA.forEach(function (r) {
-      if (r.dia_semana !== weekdayName) return;
-      items.push({
-        kind: 'rotina', label: r.descricao, color: '#94A3B8', bg: 'rgba(148,163,184,0.16)',
-        startMin: toMin(r.hora_inicio), endMin: toMin(r.hora_fim), done: false
-      });
-    });
-
     return items;
   }
 
@@ -133,7 +148,7 @@
     const left = it.col * w;
     const timeText = fmtMin(it.startMin) + ' – ' + fmtMin(it.endMin);
     const mostrarHorario = height >= 34;
-    return '<div class="cal-ev' + (it.kind === 'rotina' ? ' cal-ev-task' : '') + (it.done ? ' cal-ev-done' : '') + '" style="top:' + top + 'px;height:' + height + 'px;left:calc(' + left + '% + 2px);width:calc(' + w + '% - 4px);background:' + it.bg + ';color:' + it.color + ';border-left-color:' + it.color + ';">' +
+    return '<div class="cal-ev' + (it.kind !== 'tarefa' ? ' cal-ev-task' : '') + (it.done ? ' cal-ev-done' : '') + '" style="top:' + top + 'px;height:' + height + 'px;left:calc(' + left + '% + 2px);width:calc(' + w + '% - 4px);background:' + it.bg + ';color:' + it.color + ';border-left-color:' + it.color + ';">' +
       '<div class="cal-ev-title">' + escapeHtml(it.label) + '</div>' +
       (mostrarHorario ? '<div class="cal-ev-time">' + timeText + '</div>' : '') + '</div>';
   }
@@ -267,10 +282,10 @@
     const items = itemsForDate(d);
 
     const nTarefas = items.filter(function (i) { return i.kind === 'tarefa'; }).length;
-    const nRotina = items.filter(function (i) { return i.kind === 'rotina'; }).length;
+    const nFixos = items.filter(function (i) { return i.kind !== 'tarefa'; }).length;
     const parts = [];
     if (nTarefas) parts.push(nTarefas + (nTarefas === 1 ? ' tarefa' : ' tarefas'));
-    if (nRotina) parts.push(nRotina + (nRotina === 1 ? ' item de rotina' : ' itens de rotina'));
+    if (nFixos) parts.push(nFixos + (nFixos === 1 ? ' item fixo' : ' itens fixos'));
     const summary = parts.length ? parts.join(' · ') : 'Nenhum compromisso neste dia';
 
     const head = '<div class="cal-head cal-day-head">' +
@@ -287,13 +302,17 @@
   }
 
   /* ---------- render geral e navegação ---------- */
-  function render() {
+  async function render() {
     renderTabs();
     document.querySelector('.app-topbar h2').textContent = PAGE_TITLES[activeTab];
     renderLabel();
     monthView.classList.toggle('hidden', activeTab !== 'Mês');
     weekView.classList.toggle('hidden', activeTab !== 'Semana');
     dayView.classList.toggle('hidden', activeTab !== 'Hoje');
+
+    const [rangeInicio, rangeFim] = rangeParaView();
+    await carregarEventos(rangeInicio, rangeFim);
+
     if (activeTab === 'Mês') renderMonth();
     else if (activeTab === 'Semana') renderWeek();
     else renderDay();
@@ -309,13 +328,6 @@
   document.getElementById('calPrev').addEventListener('click', function () { shift(-1); });
   document.getElementById('calNext').addEventListener('click', function () { shift(1); });
 
-  /* ---------- carrega os dados reais e só então desenha ---------- */
-  fetch("{{ url_for('api_eventos') }}")
-    .then(function (r) { return r.json(); })
-    .then(function (dados) {
-      TAREFAS = dados.tarefas || [];
-      ROTINA = dados.rotina || [];
-      render();
-    });
+  render();
 </script>
 {% endblock %}

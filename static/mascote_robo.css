@@ -1,0 +1,346 @@
+/* ============================================================
+   NEOCORTEX - Mascote (robô assistente)  ->  static/mascote_robo.css
+   - reage ao que a pessoa FAZ, nunca à ausência dela
+   - intensidade: completa | reduzida | desligada
+   - modo: normal (com balão, tocável) | avatar (compacto, chat)
+   ============================================================ */
+
+.nc-mascote {
+  /* paleta: aponte para as variáveis do common.css se quiser herdar */
+  --nc-mascote-cor: #8C7BFF;      /* antena, núcleo, luzes */
+  --nc-mascote-brilho: #D3CCFF;   /* rosto aceso na tela */
+  --nc-sinal: #FFB547;            /* "impulso elétrico" */
+  --nc-tinta: #1E2140;
+  --nc-robo-casco: #FFFFFF;
+  --nc-robo-tronco: #E4E7F2;
+  --nc-robo-contorno: #2A2F55;
+  --nc-robo-tela: #1B1F3B;
+  --nc-robo-tela-acesa: #313A7A;
+  --nc-balao-fundo: #FFFFFF;
+  --nc-balao-texto: #1E2140;
+  --nc-mascote-tamanho: 160px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.625rem;
+}
+.nc-mascote[data-modo="avatar"] { --nc-mascote-tamanho: 64px; gap: 0; }
+
+.nc-mascote-palco {
+  position: relative;
+  width: var(--nc-mascote-tamanho);
+  aspect-ratio: 1;
+}
+.nc-mascote-botao {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 40%;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.nc-mascote-botao:focus-visible { outline: 3px solid var(--nc-mascote-cor); outline-offset: 4px; }
+.nc-mascote-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* ---------- partes ---------- */
+.nc-sombra { fill: var(--nc-tinta); opacity: 0.08; transform-box: fill-box; transform-origin: center; }
+.nc-casco { fill: var(--nc-robo-casco); stroke: var(--nc-robo-contorno); stroke-width: 3; }
+.nc-tronco { fill: var(--nc-robo-tronco); }
+.nc-tela { fill: var(--nc-robo-tela); }
+.nc-tela-reflexo { fill: none; stroke: #FFFFFF; stroke-width: 3; stroke-linecap: round; opacity: 0.25; }
+.nc-luz-lateral { fill: var(--nc-mascote-cor); }
+.nc-nucleo .centro { fill: var(--nc-mascote-cor); }
+.nc-nucleo .anel { fill: var(--nc-mascote-brilho); opacity: 0.55; transform-box: fill-box; transform-origin: center; }
+.nc-propulsor { fill: var(--nc-sinal); opacity: 0.85; transform-box: fill-box; transform-origin: 50% 0%; }
+.nc-dendritos path { fill: none; stroke: var(--nc-robo-contorno); stroke-linecap: round; }
+.nc-dendritos .principal { stroke-width: 5; }
+.nc-dendritos .ramo { stroke-width: 3.5; }
+.nc-dendritos .no { fill: var(--nc-mascote-cor); }
+.nc-bochechas circle { fill: #FF8FB1; opacity: 0.35; }
+
+/* rosto aceso na tela */
+.nc-olhos ellipse, .nc-olhos .cheio, .nc-boca-feliz, .nc-boca-pensando circle,
+.nc-boca-falando { fill: var(--nc-mascote-brilho); }
+.nc-olhos path:not(.cheio), .nc-boca-neutra, .nc-boca-fechados, .nc-boca-confuso, .nc-boca-surpresa {
+  fill: none;
+  stroke: var(--nc-mascote-brilho);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nc-boca-feliz { stroke: var(--nc-mascote-brilho); stroke-width: 2; stroke-linejoin: round; }
+.nc-olhos, .nc-boca { filter: drop-shadow(0 0 3px var(--nc-mascote-cor)); }
+
+.nc-interrogacao, .nc-zzz text {
+  font: 700 22px/1 system-ui, sans-serif;
+  fill: var(--nc-mascote-cor);
+  stroke: var(--nc-balao-fundo);
+  stroke-width: 3;
+  paint-order: stroke;
+}
+.nc-zzz text { font-size: 16px; fill: var(--nc-tinta); stroke: none; }
+.nc-interrogacao { opacity: 0; transform-box: fill-box; transform-origin: 50% 100%; }
+.nc-zzz { opacity: 0; }
+
+.nc-faiscas circle { fill: var(--nc-sinal); opacity: 0; transform-box: fill-box; transform-origin: center; }
+
+/* origens das partes que se mexem */
+.nc-corpo { transform-box: view-box; transform-origin: 100px 190px; }
+.nc-giro { transform-box: view-box; transform-origin: 100px 108px; }
+.nc-dendritos { transform-box: view-box; transform-origin: 100px 42px; }
+.nc-braco { transform-box: view-box; }
+.nc-braco-dir { transform-origin: 136px 128px; }
+.nc-braco-esq { transform-origin: 64px 128px; }
+.nc-olhos, .nc-boca-falando, .nc-boca-pensando circle { transform-box: fill-box; transform-origin: center; }
+
+/* ---------- expressões (data-olhos / data-boca) ---------- */
+.nc-olhos, .nc-boca { display: none; }
+.nc-mascote[data-olhos="neutra"] .nc-olhos-neutra,
+.nc-mascote[data-olhos="feliz"] .nc-olhos-feliz,
+.nc-mascote[data-olhos="fechados"] .nc-olhos-fechados,
+.nc-mascote[data-olhos="estrela"] .nc-olhos-estrela,
+.nc-mascote[data-olhos="pensando"] .nc-olhos-pensando,
+.nc-mascote[data-olhos="confuso"] .nc-olhos-confuso,
+.nc-mascote[data-olhos="piscadela"] .nc-olhos-piscadela,
+.nc-mascote[data-olhos="surpresa"] .nc-olhos-surpresa,
+.nc-mascote[data-boca="neutra"] .nc-boca-neutra,
+.nc-mascote[data-boca="feliz"] .nc-boca-feliz,
+.nc-mascote[data-boca="fechados"] .nc-boca-fechados,
+.nc-mascote[data-boca="pensando"] .nc-boca-pensando,
+.nc-mascote[data-boca="confuso"] .nc-boca-confuso,
+.nc-mascote[data-boca="falando"] .nc-boca-falando,
+.nc-mascote[data-boca="surpresa"] .nc-boca-surpresa { display: inline; }
+
+.nc-mascote[data-olhos="confuso"] .nc-interrogacao { opacity: 1; }
+.nc-mascote[data-estado="descanso"] .nc-zzz { opacity: 0.55; }
+.nc-mascote[data-estado="descanso"] .nc-mascote-svg { filter: saturate(0.75); }
+.nc-mascote[data-estado="descanso"] .nc-propulsor { opacity: 0.35; }
+
+/* ---------- acessórios (data-acessorio) ---------- */
+.nc-acessorio { display: none; }
+.nc-mascote[data-acessorio="gorro"] .nc-acessorio-gorro,
+.nc-mascote[data-acessorio="oculos"] .nc-acessorio-oculos,
+.nc-mascote[data-acessorio="cachecol"] .nc-acessorio-cachecol { display: inline; }
+.nc-acessorio-gorro .copa { fill: var(--nc-sinal); }
+.nc-acessorio-gorro .faixa { fill: #F29A1F; }
+.nc-acessorio-gorro .pompom { fill: #FFFFFF; stroke: #F29A1F; stroke-width: 2; }
+.nc-acessorio-oculos circle { fill: rgba(255, 255, 255, 0.12); stroke: #FFFFFF; stroke-width: 3; }
+.nc-acessorio-oculos path { fill: none; stroke: #FFFFFF; stroke-width: 3; stroke-linecap: round; }
+.nc-acessorio-cachecol path { fill: #FF7A8A; }
+.nc-acessorio-cachecol .listra { fill: none; stroke: #FFFFFF; stroke-width: 2.5; opacity: 0.7; }
+
+/* ---------- balão ---------- */
+.nc-mascote-balao {
+  margin: 0;
+  min-height: 1.4em;
+  max-width: 19rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 0.9rem;
+  border: 1.5px solid var(--nc-mascote-brilho);
+  background: var(--nc-balao-fundo);
+  color: var(--nc-balao-texto);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(4px) scale(0.97);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.nc-mascote-balao.visivel { opacity: 1; transform: none; }
+.nc-mascote-balao:empty { visibility: hidden; }
+.nc-mascote:not([data-intensidade="completa"]) .nc-mascote-balao { transform: none; }
+
+/* ---------- partículas (criadas pelo JS) ---------- */
+.nc-particulas { position: absolute; inset: 0; pointer-events: none; }
+.nc-particula, .nc-onda { position: absolute; left: 50%; top: 52%; }
+.nc-particula { width: 9px; height: 9px; border-radius: 50%; }
+.nc-particula.retangulo { width: 5px; height: 12px; border-radius: 2px; }
+.nc-particula.estrela {
+  width: 13px; height: 13px; border-radius: 0;
+  clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+.nc-particula.anel { width: 10px; height: 10px; border: 2.5px solid; background: none !important; }
+.nc-onda {
+  width: 62%;
+  aspect-ratio: 1;
+  border: 3px solid var(--nc-mascote-cor);
+  border-radius: 50%;
+  opacity: 0;
+}
+
+/* ============================================================
+   MOVIMENTO - só com intensidade COMPLETA
+   ============================================================ */
+.nc-mascote[data-intensidade="completa"] { --nc-anima: 1; }
+
+/* repouso: flutua, pisca, propulsor tremula, sombra acompanha */
+.nc-mascote[data-intensidade="completa"][data-estado="neutro"] .nc-corpo,
+.nc-mascote[data-intensidade="completa"][data-estado="falando"] .nc-corpo { animation: nc-flutua 3.4s ease-in-out infinite; }
+.nc-mascote[data-intensidade="completa"][data-estado="neutro"] .nc-sombra { animation: nc-sombra 3.4s ease-in-out infinite; }
+.nc-mascote[data-intensidade="completa"][data-estado="neutro"] .nc-olhos-neutra { animation: nc-pisca 5s ease-in-out infinite; }
+.nc-mascote[data-intensidade="completa"]:not([data-estado="descanso"]) .nc-propulsor { animation: nc-chama 0.35s ease-in-out infinite alternate; }
+.nc-mascote[data-intensidade="completa"][data-estado="descanso"] .nc-corpo { animation: nc-flutua 6s ease-in-out infinite; }
+.nc-mascote[data-intensidade="completa"][data-estado="descanso"] .nc-zzz text { animation: nc-zzz 3s ease-in-out infinite; }
+.nc-zzz text:nth-child(2) { animation-delay: 1s; }
+.nc-zzz text:nth-child(3) { animation-delay: 2s; }
+
+/* ações espontâneas no repouso (data-ocioso) */
+.nc-mascote[data-intensidade="completa"][data-ocioso="olhar"] .nc-olhos-neutra { animation: nc-olhar 1.8s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-ocioso="antena"] .nc-dendritos { animation: nc-antena-balanca 1.2s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-ocioso="piscar2"] .nc-olhos-neutra { animation: nc-pisca-duplo 0.7s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-ocioso="espreguicar"] .nc-braco-dir { animation: nc-espreguica-dir 1.6s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-ocioso="espreguicar"] .nc-braco-esq { animation: nc-espreguica-esq 1.6s ease-in-out; }
+
+/* toque / saudação */
+.nc-mascote[data-intensidade="completa"][data-estado="toque"] .nc-corpo { animation: nc-boing 0.7s ease-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="toque"] .nc-dendritos { animation: nc-antena-balanca 0.9s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="toque"] .nc-braco-dir { animation: nc-aceno-braco 1s ease-in-out; }
+
+/* surpresa (abre as reações maiores) */
+.nc-mascote[data-intensidade="completa"][data-estado="surpresa"] .nc-corpo { animation: nc-sobressalto 0.42s ease-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="surpresa"] .nc-dendritos { animation: nc-antena-ergue 0.42s ease-out; }
+
+/* comemoração pequena */
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_p"] .nc-corpo { animation: nc-pulo-p 0.65s ease-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_p"] .nc-braco-dir { animation: nc-soquinho 0.65s ease-out; }
+
+/* comemoração média */
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_m"] .nc-corpo { animation: nc-pulo-m 1s ease-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_m"] .nc-braco-dir { animation: nc-aceno-braco 1.1s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_m"] .nc-braco-esq { animation: nc-soquinho-esq 0.9s ease-out 0.15s; }
+
+/* comemoração grande: pulo alto com giro no ar, braços pra cima */
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_g"] .nc-corpo { animation: nc-pulo-g 1.7s ease-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_g"] .nc-giro { animation: nc-giro 1.7s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_g"] .nc-braco-dir { animation: nc-bracos-cima-dir 1.7s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_g"] .nc-braco-esq { animation: nc-bracos-cima-esq 1.7s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="comemora_g"] .nc-faiscas circle { animation: nc-faisca 1s ease-out 3; }
+
+/* incentivo: inclina e acena */
+.nc-mascote[data-intensidade="completa"][data-estado="incentivo"] .nc-corpo { animation: nc-inclina 1.2s ease-in-out; }
+.nc-mascote[data-intensidade="completa"][data-estado="incentivo"] .nc-braco-dir { animation: nc-aceno-braco 1.1s ease-in-out; }
+
+/* assistente */
+.nc-mascote[data-intensidade="completa"][data-estado="pensando"] .nc-corpo { animation: nc-pensa 2.4s ease-in-out infinite; }
+.nc-mascote[data-intensidade="completa"][data-estado="pensando"] .nc-braco-dir { animation: nc-queixo 2.4s ease-in-out infinite; }
+.nc-mascote[data-intensidade="completa"][data-estado="confuso"] .nc-corpo { animation: nc-confuso 0.9s ease-out forwards; }
+.nc-mascote[data-intensidade="completa"][data-estado="confuso"] .nc-dendritos { animation: nc-antena-murcha 0.9s ease-out forwards; }
+.nc-mascote[data-intensidade="completa"][data-estado="confuso"] .nc-interrogacao { animation: nc-surge 0.5s ease-out; }
+.nc-mascote[data-intensidade="completa"][data-boca="falando"] .nc-boca-falando { animation: nc-fala 0.24s ease-in-out infinite alternate; }
+
+/* ============================================================
+   COR E BRILHO - completa e reduzida (sem deslocamento)
+   ============================================================ */
+.nc-mascote:not([data-intensidade="desligada"])[data-estado^="comemora"] .nc-dendritos path,
+.nc-mascote:not([data-intensidade="desligada"])[data-estado="incentivo"] .nc-dendritos path { animation: nc-pulso-antena 0.8s ease-in-out 2; }
+.nc-mascote:not([data-intensidade="desligada"])[data-estado^="comemora"] .nc-tela { animation: nc-tela-acende 0.8s ease-in-out 2; }
+.nc-mascote:not([data-intensidade="desligada"])[data-estado^="comemora"] .nc-nucleo .anel,
+.nc-mascote:not([data-intensidade="desligada"])[data-estado="incentivo"] .nc-nucleo .anel { animation: nc-nucleo-pulso 0.9s ease-out 2; }
+.nc-mascote[data-intensidade="reduzida"] .nc-nucleo .anel { animation-name: nc-suave !important; }
+.nc-mascote[data-intensidade="reduzida"][data-estado="comemora_g"] .nc-faiscas circle { animation: nc-suave 1.4s ease-in-out; }
+.nc-mascote:not([data-intensidade="desligada"])[data-estado="pensando"] .nc-dendritos .no,
+.nc-mascote:not([data-intensidade="desligada"])[data-boca="pensando"] .nc-boca-pensando circle { animation: nc-processa 1.1s ease-in-out infinite; }
+.nc-dendritos .no:nth-of-type(2), .nc-boca-pensando circle:nth-child(2) { animation-delay: 0.18s !important; }
+.nc-dendritos .no:nth-of-type(3), .nc-boca-pensando circle:nth-child(3) { animation-delay: 0.36s !important; }
+.nc-faiscas circle:nth-child(2) { animation-delay: 0.08s; }
+.nc-faiscas circle:nth-child(3) { animation-delay: 0.16s; }
+.nc-faiscas circle:nth-child(4) { animation-delay: 0.24s; }
+.nc-faiscas circle:nth-child(5) { animation-delay: 0.04s; }
+.nc-faiscas circle:nth-child(6) { animation-delay: 0.12s; }
+.nc-faiscas circle:nth-child(7) { animation-delay: 0.2s; }
+.nc-faiscas circle:nth-child(8) { animation-delay: 0.28s; }
+
+/* ---------- keyframes ---------- */
+@keyframes nc-flutua { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes nc-sombra { 0%, 100% { transform: scaleX(1); opacity: 0.08; } 50% { transform: scaleX(0.88); opacity: 0.05; } }
+@keyframes nc-pisca { 0%, 90%, 100% { transform: scaleY(1); } 94% { transform: scaleY(0.1); } }
+@keyframes nc-pisca-duplo { 0%, 100% { transform: scaleY(1); } 20%, 60% { transform: scaleY(0.1); } 40% { transform: scaleY(1); } }
+@keyframes nc-olhar { 0%, 100% { transform: translateX(0); } 20%, 45% { transform: translateX(-3.5px); } 60%, 85% { transform: translateX(3.5px); } }
+@keyframes nc-chama { from { transform: scaleY(0.8); opacity: 0.7; } to { transform: scaleY(1.15); opacity: 0.95; } }
+@keyframes nc-zzz { 0% { opacity: 0; transform: translateY(4px); } 40% { opacity: 0.6; } 100% { opacity: 0; transform: translateY(-10px); } }
+@keyframes nc-antena-balanca { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 55% { transform: rotate(9deg); } 80% { transform: rotate(-4deg); } }
+@keyframes nc-antena-ergue { 0% { transform: scaleY(1); } 50% { transform: scaleY(1.25); } 100% { transform: scaleY(1); } }
+@keyframes nc-antena-murcha { to { transform: rotate(22deg) scaleY(0.92); } }
+@keyframes nc-espreguica-dir { 0%, 100% { transform: rotate(0); } 40%, 60% { transform: rotate(-60deg); } }
+@keyframes nc-espreguica-esq { 0%, 100% { transform: rotate(0); } 40%, 60% { transform: rotate(60deg); } }
+@keyframes nc-boing {
+  0% { transform: scale(1, 1); } 25% { transform: scale(1.08, 0.9); } 50% { transform: scale(0.94, 1.07) translateY(-6px); }
+  75% { transform: scale(1.03, 0.98); } 100% { transform: scale(1, 1); }
+}
+@keyframes nc-sobressalto { 0% { transform: translateY(0) scale(1); } 40% { transform: translateY(-12px) scale(0.95, 1.08); } 100% { transform: translateY(-4px) scale(1); } }
+@keyframes nc-pulo-p {
+  0% { transform: translateY(0) scale(1, 1); } 20% { transform: translateY(0) scale(1.06, 0.93); }
+  50% { transform: translateY(-16px) scale(0.97, 1.05); } 80% { transform: translateY(0) scale(1.05, 0.95); } 100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes nc-pulo-m {
+  0% { transform: translateY(0) scale(1, 1); } 15% { transform: translateY(0) scale(1.08, 0.9); }
+  42% { transform: translateY(-28px) scale(0.95, 1.07) rotate(-4deg); } 60% { transform: translateY(-24px) rotate(4deg); }
+  80% { transform: translateY(0) scale(1.07, 0.93); } 100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes nc-pulo-g {
+  0% { transform: translateY(0) scale(1, 1); } 12% { transform: translateY(0) scale(1.1, 0.88); }
+  30% { transform: translateY(-46px) scale(0.94, 1.08); } 58% { transform: translateY(-42px) scale(1); }
+  76% { transform: translateY(0) scale(1.1, 0.9); } 88% { transform: translateY(-8px) scale(0.98, 1.02); } 100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes nc-giro { 0%, 24% { transform: rotate(0); } 60%, 100% { transform: rotate(360deg); } }
+@keyframes nc-soquinho { 0%, 100% { transform: rotate(0); } 45% { transform: rotate(-110deg); } }
+@keyframes nc-soquinho-esq { 0%, 100% { transform: rotate(0); } 45% { transform: rotate(80deg); } }
+@keyframes nc-aceno-braco { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-80deg); } 45% { transform: rotate(-55deg); } 65% { transform: rotate(-85deg); } }
+@keyframes nc-bracos-cima-dir { 0%, 100% { transform: rotate(0); } 25%, 75% { transform: rotate(-120deg); } }
+@keyframes nc-bracos-cima-esq { 0%, 100% { transform: rotate(0); } 25%, 75% { transform: rotate(120deg); } }
+@keyframes nc-inclina { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-7deg); } 60% { transform: rotate(5deg); } 85% { transform: rotate(-2deg); } }
+@keyframes nc-pensa { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-4px) rotate(-6deg); } }
+@keyframes nc-queixo { 0%, 100% { transform: rotate(-138deg); } 50% { transform: rotate(-152deg); } } /* coça a cabeça */
+@keyframes nc-confuso { 0% { transform: rotate(0); } 40% { transform: rotate(9deg) translateX(3px); } 100% { transform: rotate(6deg); } }
+@keyframes nc-surge { 0% { opacity: 0; transform: scale(0.3) translateY(6px); } 70% { opacity: 1; transform: scale(1.2); } 100% { transform: scale(1); } }
+@keyframes nc-fala { from { transform: scaleY(0.35); } to { transform: scaleY(1.2); } }
+@keyframes nc-pulso-antena { 0%, 100% { stroke: var(--nc-robo-contorno); } 45% { stroke: var(--nc-sinal); } }
+@keyframes nc-tela-acende { 0%, 100% { fill: var(--nc-robo-tela); } 45% { fill: var(--nc-robo-tela-acesa); } }
+@keyframes nc-nucleo-pulso { 0% { transform: scale(1); opacity: 0.55; } 50% { transform: scale(1.7); opacity: 0.12; } 100% { transform: scale(1); opacity: 0.55; } }
+@keyframes nc-faisca { 0% { opacity: 0; transform: scale(0.3); } 30% { opacity: 1; transform: scale(1.5); } 100% { opacity: 0; transform: scale(0.6); } }
+@keyframes nc-suave { 0%, 100% { opacity: 0.25; } 45% { opacity: 1; } }
+@keyframes nc-processa { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+
+/* ============================================================
+   INTEGRAÇÃO COM O NEOCORTEX (base_app_novo.html / assistente.html)
+   ============================================================ */
+
+/* modo escuro do sistema (.dark no <html>) */
+.dark .nc-mascote {
+  --nc-balao-fundo: var(--nc-surface);
+  --nc-balao-texto: var(--nc-text);
+  --nc-tinta: var(--nc-text);
+}
+.nc-mascote-balao { font-family: inherit; font-weight: 500; }
+
+/* robô flutuante no canto (todas as páginas, menos o assistente) */
+.nc-mascote-dock {
+  position: fixed;
+  right: 28px;
+  bottom: 20px;
+  z-index: 40;              /* abaixo dos modais (z-index 50) */
+  pointer-events: none;     /* só o robô e o balão recebem clique */
+}
+.nc-mascote-dock.acima-do-fab { bottom: 100px; }   /* páginas com o botão "+" */
+.nc-mascote-dock .nc-mascote {
+  --nc-mascote-tamanho: 96px;
+  flex-direction: column-reverse;   /* balão em cima do robô */
+  align-items: flex-end;
+}
+.nc-mascote-dock .nc-mascote-palco,
+.nc-mascote-dock .nc-mascote-balao.visivel { pointer-events: auto; }
+.nc-mascote-dock .nc-mascote-balao {
+  text-align: left;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  border-bottom-right-radius: 0.3rem;
+}
+
+/* avatar ao lado das mensagens do assistente */
+.nc-chat-avatar { width: 44px; height: 44px; flex-shrink: 0; }
+.nc-chat-avatar .nc-mascote { --nc-mascote-tamanho: 44px; }
+.nc-chat-pensando { color: var(--nc-text2); font-style: italic; }

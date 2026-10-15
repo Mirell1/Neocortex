@@ -22,16 +22,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from periodos import JANELA_LOTE_MIN, normalizar_energia, periodo_da_hora  # mesma regra do sistema
+from periodos import PERIODOS as _PERIODOS
+
 # ------------------------------------------------------------
 # PARAMETROS (ajuste aqui, nao no meio do codigo)
 # ------------------------------------------------------------
-PERIODOS = ["manha", "tarde", "noite"]
+PERIODOS = list(_PERIODOS)   # lista: o pandas não aceita tupla como seletor de colunas
 
 MIN_CONCLUSOES_USUARIO = 5       # abaixo disso, o "periodo observado" da pessoa nao e confiavel
 PARTICIPACAO_MIN_DOMINANTE = 0.5 # o periodo dominante precisa ter >= 50% das conclusoes
 MIN_USUARIOS_RELATORIO = 5       # abaixo disso, nao reportamos percentuais (so contagens)
 MIN_TAREFAS_GRUPO = 30           # minimo de tarefas em cada grupo (no pico / fora do pico)
-JANELA_LOTE_MIN = 10             # conclusoes a menos de N min uma da outra = "lote"
 
 PASTA_SAIDA = Path("analise_saida")
 
@@ -39,19 +41,10 @@ PASTA_SAIDA = Path("analise_saida")
 # ------------------------------------------------------------
 # FUNCOES AUXILIARES
 # ------------------------------------------------------------
-def periodo_da_hora(hora):
-    """manha 05-11h, tarde 12-17h, noite 18h ate 04h."""
-    if 5 <= hora < 12:
-        return "manha"
-    if 12 <= hora < 18:
-        return "tarde"
-    return "noite"
-
-
-def normalizar_energia(valor):
-    """Aceita o formato novo ('manha') e o antigo do cadastro ('Manhã')."""
-    v = str(valor).strip().lower().replace("ã", "a")
-    return v if v in {"manha", "tarde", "noite", "nao_sei"} else np.nan
+def normalizar_energia_ou_nan(valor):
+    """Aceita o formato novo ('manha') e o antigo do cadastro ('Manhã'); inválido vira NaN."""
+    v = normalizar_energia(valor)
+    return v if v else np.nan
 
 
 def intervalo_wilson(sucessos, total, z=1.96):
@@ -148,7 +141,7 @@ def gerar_dados_simulados(n_usuarios=40, concordancia=0.6, seed=42):
 # ------------------------------------------------------------
 def preparar(energia, tarefas):
     energia = energia.copy()
-    energia["energia_declarada"] = energia["energia_declarada"].map(normalizar_energia)
+    energia["energia_declarada"] = energia["energia_declarada"].map(normalizar_energia_ou_nan)
     energia = energia.dropna(subset=["energia_declarada"]).drop_duplicates("id_usuario")
 
     tarefas = tarefas.copy()

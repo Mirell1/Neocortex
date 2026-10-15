@@ -1,14 +1,23 @@
 -- ============================================================
 -- Ajuste na tabela usuarios: alinhar faixa_etaria, ocupacao e
 -- turno com o novo formulário de onboarding
+--
+-- ATENÇÃO — rode UMA vez, em banco SEM usuários.
+-- Os valores antigos de faixa_etaria/ocupacao não são compatíveis com as novas
+-- regras, e ocupacao é APAGADA (dá lugar a trabalha/estuda). Antes, este arquivo
+-- fazia TRUNCATE usuarios CASCADE sem avisar; agora ele PARA com um erro se
+-- houver qualquer usuário, em vez de apagar dados. Para limpar de propósito um
+-- banco de teste, rode você mesmo:  TRUNCATE usuarios CASCADE;
 -- ============================================================
 
--- AVISO: isso apaga as contas de teste existentes, porque os
--- valores antigos de faixa_etaria/ocupacao não são compatíveis
--- com as novas regras (CHECK constraints não aceitam dado velho
--- que não bate com a regra nova). Como são só contas de teste
--- no banco local, isso não é um problema real.
-TRUNCATE usuarios CASCADE;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM usuarios) THEN
+        RAISE EXCEPTION
+            'neocortex_ajuste_usuarios.sql abortado: a tabela usuarios tem dados. '
+            'Este ajuste apaga a coluna ocupacao. Faça backup/migre os dados ou, se for só teste, rode TRUNCATE usuarios CASCADE;';
+    END IF;
+END $$;
 
 -- Nova faixa etária (bate com as opções do onboarding,
 -- já sem a faixa 14-17 removida por decisão de LGPD)

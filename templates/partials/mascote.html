@@ -8,6 +8,7 @@
    Se a gamificação estiver desligada (GAMIFICACAO_ATIVA), não inclua este partial. #}
 {# Mascote do NEOCORTEX — só a marcação; CSS/JS já são carregados uma vez em base_app_novo.html #}
 <div data-nc-mascote
+     data-skin="{{ mascote_skin|default('robo', true) }}"
      data-modo="{{ mascote_modo|default('normal', true) }}"
      data-intensidade="{{ mascote_intensidade|default('', true) }}"
      data-acessorio="{{ mascote_acessorio|default('', true) }}"

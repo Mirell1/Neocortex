@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR" data-fonte="{{ acess_fonte }}" data-contraste="{{ acess_contraste }}" data-tipografia="{{ acess_tipografia }}">
+<html lang="pt-BR" data-tema="{{ tema_ativo|default('padrao') }}" data-fonte="{{ acess_fonte }}" data-contraste="{{ acess_contraste }}" data-tipografia="{{ acess_tipografia }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,6 +18,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
   {% if mascote_ativo %}
   <link rel="stylesheet" href="{{ url_for('static', filename='mascote_robo.css') }}">
+  {% endif %}
+  {% if tema_ativo == 'cafeteria' %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='tema_cafeteria.css') }}">
   {% endif %}
 </head>
 <body>
@@ -50,18 +53,20 @@
       </div>
     </div>
   </div>
-  {% if mascote_ativo and pagina != 'assistente' %}
-  <div class="nc-mascote-dock{{ ' acima-do-fab' if pagina in ('tarefas', 'rotina', 'objetivos') else '' }}">
-    {% include "partials/mascote.html" %}
-  </div>
-  {% endif %}
+
   {% if mascote_ativo %}
-  <script>
-    window.NC_EVENTOS_INICIAIS = {{ mascote_eventos | tojson }};
-    window.NC_SAUDACAO_DADOS = { hora: new Date().getHours(), pendentes: {{ tarefas_pendentes_hoje | default('null') }} };
-  </script>
-  <script src="{{ url_for('static', filename='mascote_robo.js') }}" defer></script>
+    {% if pagina != 'assistente' %}
+    <div class="nc-mascote-dock{{ ' acima-do-fab' if pagina in ('tarefas', 'rotina', 'objetivos') else '' }}">
+      {% include "partials/mascote.html" %}
+    </div>
+    {% endif %}
+    <script>
+      window.NC_EVENTOS_INICIAIS = {{ (mascote_eventos or []) | tojson }};
+      window.NC_SAUDACAO_DADOS = {{ ({'pendentes': total - concluidas} if pagina == 'dashboard' and total is defined else {})|tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='mascote_robo.js') }}" defer></script>
   {% endif %}
+
   <div vw class="enabled">
     <div vw-access-button class="active"></div>
     <div vw-plugin-wrapper><div class="vw-plugin-top-wrapper"></div></div>

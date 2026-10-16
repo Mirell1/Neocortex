@@ -344,3 +344,83 @@
 .nc-chat-avatar { width: 44px; height: 44px; flex-shrink: 0; }
 .nc-chat-avatar .nc-mascote { --nc-mascote-tamanho: 44px; }
 .nc-chat-pensando { color: var(--nc-text2); font-style: italic; }
+
+/* ============================================================
+   VISUAL: GRÃO (tema Cafeteria) - data-skin="grao"
+   Mesmo rosto e mesmos estados do robô; muda o corpo e o vapor.
+   ============================================================ */
+.nc-mascote[data-skin="grao"] {
+  --nc-mascote-cor: #C98A4B;      /* faixa da xícara e partículas */
+  --nc-mascote-brilho: #F3DFC6;
+  --nc-sinal: #F2C35B;            /* estrelas da comemoração */
+  --nc-grao-tinta: #3B2A22;
+  --nc-grao-louca: #FFF8F0;
+  --nc-grao-cafe: #8A5A44;
+  --nc-grao-vapor: #C9B3A2;
+}
+.dark .nc-mascote[data-skin="grao"] { --nc-grao-vapor: #8C766A; }
+
+.nc-mascote[data-skin="grao"] .nc-xicara { fill: var(--nc-grao-louca); stroke: var(--nc-grao-tinta); stroke-width: 4; stroke-linejoin: round; }
+.nc-mascote[data-skin="grao"] .nc-faixa { fill: var(--nc-mascote-cor); }
+.nc-mascote[data-skin="grao"] .nc-cafe { fill: var(--nc-grao-cafe); stroke: var(--nc-grao-tinta); stroke-width: 4; }
+.nc-mascote[data-skin="grao"] .nc-crema { fill: #C08A6B; }
+.nc-mascote[data-skin="grao"] .nc-pires { fill: #E9D8C6; stroke: var(--nc-grao-tinta); stroke-width: 4; }
+.nc-mascote[data-skin="grao"] .nc-alca-fora { fill: none; stroke: var(--nc-grao-tinta); stroke-width: 15; stroke-linecap: round; }
+.nc-mascote[data-skin="grao"] .nc-alca-dentro { fill: none; stroke: var(--nc-grao-louca); stroke-width: 6; stroke-linecap: round; }
+.nc-mascote[data-skin="grao"] .nc-vapor path,
+.nc-mascote[data-skin="grao"] .nc-vapor-estrela path:not(.estrela):not(.estrela-mini) {
+  fill: none; stroke: var(--nc-grao-vapor); stroke-width: 5; stroke-linecap: round;
+  transform-box: fill-box; transform-origin: 50% 100%;
+}
+.nc-mascote[data-skin="grao"] .nc-vapor-estrela { display: none; }
+.nc-mascote[data-skin="grao"] .nc-vapor-estrela .estrela { fill: var(--nc-sinal); stroke: var(--nc-grao-tinta); stroke-width: 2.5; stroke-linejoin: round; }
+.nc-mascote[data-skin="grao"] .nc-vapor-estrela .estrela-mini { fill: var(--nc-sinal); }
+.nc-mascote[data-skin="grao"][data-olhos="estrela"] .nc-vapor { display: none; }
+.nc-mascote[data-skin="grao"][data-olhos="estrela"] .nc-vapor-estrela { display: inline; }
+.nc-mascote[data-skin="grao"] .nc-bochechas circle { fill: #F2A7A0; opacity: 0.55; }
+
+/* rosto: tinta escura na louça (no robô o rosto é aceso na tela) */
+.nc-mascote[data-skin="grao"] .nc-olhos,
+.nc-mascote[data-skin="grao"] .nc-boca { filter: none; }
+.nc-mascote[data-skin="grao"] .nc-olhos ellipse,
+.nc-mascote[data-skin="grao"] .nc-olhos .cheio,
+.nc-mascote[data-skin="grao"] .nc-boca-feliz,
+.nc-mascote[data-skin="grao"] .nc-boca-pensando circle,
+.nc-mascote[data-skin="grao"] .nc-boca-falando { fill: var(--nc-grao-tinta); }
+.nc-mascote[data-skin="grao"] .nc-olhos .brilho { fill: #FFFFFF; }
+.nc-mascote[data-skin="grao"] .nc-olhos path:not(.cheio),
+.nc-mascote[data-skin="grao"] .nc-boca-neutra,
+.nc-mascote[data-skin="grao"] .nc-boca-fechados,
+.nc-mascote[data-skin="grao"] .nc-boca-confuso,
+.nc-mascote[data-skin="grao"] .nc-boca-surpresa,
+.nc-mascote[data-skin="grao"] .nc-boca-feliz { stroke: var(--nc-grao-tinta); }
+.nc-mascote[data-skin="grao"] .nc-interrogacao { fill: var(--nc-mascote-cor); }
+
+/* ---------- movimento próprio do Grão (completa) ---------- */
+/* repouso: a xícara não flutua, "respira" no pires; o vapor sobe */
+.nc-mascote[data-skin="grao"][data-intensidade="completa"][data-estado="neutro"] .nc-corpo,
+.nc-mascote[data-skin="grao"][data-intensidade="completa"][data-estado="falando"] .nc-corpo { animation: nc-respira-grao 4s ease-in-out infinite; }
+.nc-mascote[data-skin="grao"][data-intensidade="completa"][data-estado="neutro"] .nc-sombra { animation: none; }
+.nc-mascote[data-skin="grao"][data-intensidade="completa"]:not([data-estado="descanso"]) .nc-vapor path { animation: nc-vapor-sobe 2.8s ease-in-out infinite; }
+.nc-mascote[data-skin="grao"] .nc-vapor path:nth-child(2) { animation-delay: 0.9s; }
+.nc-mascote[data-skin="grao"] .nc-vapor path:nth-child(3) { animation-delay: 1.8s; }
+.nc-mascote[data-skin="grao"][data-intensidade="completa"][data-estado="descanso"] .nc-corpo { animation: nc-respira-grao 7s ease-in-out infinite; }
+.nc-mascote[data-skin="grao"][data-estado="descanso"] .nc-vapor { opacity: 0.3; }
+
+/* pensando: o vapor "processa" em sequência */
+.nc-mascote[data-skin="grao"]:not([data-intensidade="desligada"])[data-estado="pensando"] .nc-vapor path { animation: nc-processa 1.1s ease-in-out infinite; }
+
+/* comemorações: estrela de vapor surge; na grande, o vapor gira com a xícara */
+.nc-mascote[data-skin="grao"][data-intensidade="completa"][data-olhos="estrela"] .nc-vapor-estrela .estrela {
+  transform-box: fill-box; transform-origin: center; animation: nc-surge 0.6s ease-out;
+}
+.nc-mascote[data-skin="grao"][data-intensidade="completa"][data-estado="comemora_m"] .nc-corpo { animation: nc-pulo-m 1s ease-out; }
+.nc-mascote[data-skin="grao"]:not([data-intensidade="desligada"])[data-estado^="comemora"] .nc-faixa { animation: nc-faixa-brilha 0.8s ease-in-out 2; }
+
+@keyframes nc-respira-grao { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.015, 0.985); } }
+@keyframes nc-vapor-sobe {
+  0%   { transform: translateY(4px) scaleY(0.85); opacity: 0.2; }
+  40%  { opacity: 0.9; }
+  100% { transform: translateY(-8px) scaleY(1.05); opacity: 0; }
+}
+@keyframes nc-faixa-brilha { 0%, 100% { fill: var(--nc-mascote-cor); } 45% { fill: var(--nc-sinal); } }

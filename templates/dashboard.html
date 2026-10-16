@@ -6,7 +6,7 @@
 
 {% block conteudo %}
 <div style="padding:32px;display:flex;flex-direction:column;gap:24px;">
-  <div
+  <div class="nc-hero-progresso"
     style="border-radius:20px;overflow:hidden;background:linear-gradient(155deg, #01004E 0%, #2563EB 55%, #7C3AED 100%);padding:32px;position:relative;">
     <div
       style="position:absolute;top:-40%;right:-10%;width:300px;height:300px;border-radius:50%;background:rgba(255,255,255,0.06);pointer-events:none;">
@@ -26,7 +26,7 @@
           {{ pct }}%</div>
       </div>
       <div style="height:8px;border-radius:4px;background:rgba(255,255,255,0.2);margin-bottom:16px;">
-        <div style="height:100%;border-radius:4px;background:linear-gradient(90deg, #A78BFA, white);width:{{ pct }}%;">
+        <div class="nc-barra-progresso" style="height:100%;border-radius:4px;background:linear-gradient(90deg, #A78BFA, white);width:{{ pct }}%;">
         </div>
       </div>
       <p style="margin:0;font-size:13px;font-weight:600;color:rgba(255,255,255,0.8);">Você já completou {{ concluidas }}

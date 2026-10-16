@@ -95,7 +95,58 @@
   <g class="nc-zzz"><text x="146" y="46">z</text><text x="156" y="34">z</text><text x="166" y="22">z</text></g>
 </svg>`;
 
-  const SKINS = { robo: SVG_ROBO };
+  const SVG_GRAO = `
+<svg class="nc-mascote-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <ellipse class="nc-sombra" cx="100" cy="192" rx="62" ry="6"/>
+  <g class="nc-corpo"><g class="nc-giro">
+    <g class="nc-vapor">
+      <path d="M78 58 Q70 47 78 37 Q86 27 78 16"/>
+      <path d="M100 54 Q92 42 100 31 Q108 20 100 8"/>
+      <path d="M122 58 Q114 47 122 37 Q130 27 122 16"/>
+    </g>
+    <g class="nc-vapor-estrela">
+      <path d="M100 58 Q94 50 100 42"/>
+      <path class="estrela" d="M100.0 7.0 L104.3 18.1 L116.2 18.7 L106.9 26.3 L110.0 37.8 L100.0 31.3 L90.0 37.8 L93.1 26.3 L83.8 18.7 L95.7 18.1 Z"/>
+      <path class="estrela-mini" d="M66.0 27.0 L67.8 31.6 L72.7 31.8 L68.9 34.9 L70.1 39.7 L66.0 37.0 L61.9 39.7 L63.1 34.9 L59.3 31.8 L64.2 31.6 Z"/>
+      <path class="estrela-mini" d="M136.0 23.0 L137.8 27.6 L142.7 27.8 L138.9 30.9 L140.1 35.7 L136.0 33.0 L131.9 35.7 L133.1 30.9 L129.3 27.8 L134.2 27.6 Z"/>
+    </g>
+    <ellipse class="nc-pires" cx="100" cy="174" rx="74" ry="13"/>
+    <path class="nc-alca-fora" d="M150 92 Q182 92 175 124 Q168 150 140 146"/>
+    <path class="nc-alca-dentro" d="M150 92 Q182 92 175 124 Q168 150 140 146"/>
+    <path class="nc-xicara" d="M38 72 L162 72 L151 148 Q148 168 127 168 L73 168 Q52 168 49 148 Z"/>
+    <path class="nc-faixa" d="M45.4 132 L154.6 132 L152.8 145 L47.2 145 Z"/>
+    <ellipse class="nc-cafe" cx="100" cy="72" rx="62" ry="13"/>
+    <ellipse class="nc-crema" cx="88" cy="70.5" rx="18" ry="4.5"/>
+    <g class="nc-bochechas"><circle cx="66" cy="120" r="8"/><circle cx="134" cy="120" r="8"/></g>
+
+    <g class="nc-olhos nc-olhos-neutra"><ellipse cx="82" cy="102" rx="6.5" ry="8.5"/><ellipse cx="118" cy="102" rx="6.5" ry="8.5"/><circle class="brilho" cx="84.5" cy="98.5" r="2.2"/><circle class="brilho" cx="120.5" cy="98.5" r="2.2"/></g>
+    <g class="nc-olhos nc-olhos-feliz"><path d="M74 106 Q82 95 90 106"/><path d="M110 106 Q118 95 126 106"/></g>
+    <g class="nc-olhos nc-olhos-fechados"><path d="M74 102 Q82 109 90 102"/><path d="M110 102 Q118 109 126 102"/></g>
+    <g class="nc-olhos nc-olhos-estrela"><path class="cheio" d="M82.0 91.0 L84.8 98.2 L92.5 98.6 L86.5 103.5 L88.5 110.9 L82.0 106.7 L75.5 110.9 L77.5 103.5 L71.5 98.6 L79.2 98.2 Z"/><path class="cheio" d="M118.0 91.0 L120.8 98.2 L128.5 98.6 L122.5 103.5 L124.5 110.9 L118.0 106.7 L111.5 110.9 L113.5 103.5 L107.5 98.6 L115.2 98.2 Z"/></g>
+    <g class="nc-olhos nc-olhos-pensando"><ellipse cx="86" cy="97" rx="5.5" ry="7.5"/><ellipse cx="122" cy="97" rx="5.5" ry="7.5"/></g>
+    <g class="nc-olhos nc-olhos-confuso"><ellipse cx="82" cy="100" rx="7" ry="9.5"/><ellipse cx="118" cy="104" rx="5" ry="5"/></g>
+    <g class="nc-olhos nc-olhos-piscadela"><ellipse cx="82" cy="102" rx="6.5" ry="8.5"/><path d="M110 106 Q118 95 126 106"/></g>
+    <g class="nc-olhos nc-olhos-surpresa"><ellipse cx="82" cy="101" rx="8" ry="10.5"/><ellipse cx="118" cy="101" rx="8" ry="10.5"/></g>
+
+    <path class="nc-boca nc-boca-neutra" d="M92 119 Q100 126 108 119"/>
+    <path class="nc-boca nc-boca-feliz" d="M89 117 Q100 134 111 117 Z"/>
+    <path class="nc-boca nc-boca-fechados" d="M94 122 L106 122"/>
+    <g class="nc-boca nc-boca-pensando"><circle cx="91" cy="122" r="3"/><circle cx="100" cy="122" r="3"/><circle cx="109" cy="122" r="3"/></g>
+    <path class="nc-boca nc-boca-confuso" d="M90 122 Q95 116 100 122 Q105 128 110 122"/>
+    <ellipse class="nc-boca nc-boca-falando" cx="100" cy="121" rx="6" ry="5"/>
+    <ellipse class="nc-boca nc-boca-surpresa" cx="100" cy="123" rx="5" ry="6.5"/>
+
+    <g class="nc-faiscas">
+      <circle cx="56" cy="40" r="5"/><circle cx="144" cy="40" r="5"/><circle cx="30" cy="96" r="4"/><circle cx="178" cy="70" r="4"/>
+      <circle cx="26" cy="146" r="4"/><circle cx="180" cy="150" r="4"/><circle cx="100" cy="6" r="5"/><circle cx="70" cy="14" r="4"/>
+    </g>
+  </g></g>
+  <text class="nc-interrogacao" x="150" y="40">?</text>
+  <g class="nc-zzz"><text x="148" y="46">z</text><text x="160" y="34">z</text><text x="172" y="22">z</text></g>
+</svg>`;
+
+  // um visual por tema: o mascote segue o tema escolhido pela pessoa
+  const SKINS = { robo: SVG_ROBO, grao: SVG_GRAO };
 
   // expressão -> [olhos, boca]
   const EXPRESSOES = {
@@ -190,6 +241,39 @@
     conquista: ['Item desbloqueado!', 'Novo item desbloqueado: {item}.', 'Conquista: {item}.'],
   };
 
+  // falas próprias de cada visual; o que faltar aqui cai nas FRASES gerais
+  const DICAS_E_CURIOSIDADES = FRASES.toque.filter((f) => !/antena|Bip|Minha antena/i.test(f));
+  const FRASES_SKIN = {
+    grao: {
+      saudacao_manha: [
+        'Bom dia! O cardápio de hoje tem {pendentes} tarefas.',
+        'Bom dia! Café passado, vamos ao dia?',
+        'Bom dia. Um pedido de cada vez.',
+      ],
+      saudacao_tarde: [
+        'Boa tarde! Hora do cafezinho e da próxima tarefa?',
+        'Boa tarde! Ainda há {pendentes} pedidos pra hoje.',
+      ],
+      saudacao_noite: [
+        'Boa noite! Que tal revisar o dia com calma?',
+        'Boa noite. O que ficou pra amanhã pode ser replanejado.',
+      ],
+      saudacao_madrugada: ['Já é bem tarde. A cafeteria reabre amanhã.', 'Hora de descansar. O resto pode esperar.'],
+      saudacao_livre: ['Nenhum pedido pra hoje. Bom momento pra planejar ou descansar.'],
+      toque: DICAS_E_CURIOSIDADES.concat(['Plim! Café fresquinho por aqui.', 'Mexendo o açúcar... pronto!']),
+      toque_insistente: ['Opa, quase derramou! Tudo certo por aqui.', 'Calma, o pires tá firme!'],
+      tarefa_concluida: ['Pedido servido!', 'Mais um pedido pronto.', 'Servido. Uma a menos.', 'Saindo do balcão!'],
+      tarefa_criada: ['Anotado no pedido.', 'Pedido anotado.', 'Entrou no cardápio.'],
+      dia_concluido: ['Todos os pedidos de hoje servidos!', 'Cardápio do dia completo. O resto do dia é seu.'],
+      objetivo_concluido: [
+        'Especial da casa: objetivo concluído!',
+        'Objetivo concluído: {objetivo}. Isso merece um brinde.',
+      ],
+      tarefa_replanejada: ['Pedido remarcado. Melhor servir na hora certa.', 'Nova data definida. Ajustar faz parte.'],
+      descanso: ['Hoje a cafeteria fecha mais cedo.', 'Pausa pro café. Descanso também conta.'],
+    },
+  };
+
   // ------------------------------------------------------------
   // REAÇÕES
   // etapas: [estado, expressão, ms]. ms = 0 na última etapa = fica até o próximo evento.
@@ -245,10 +329,12 @@
       this.raiz = raiz;
       this.modo = (opcoes.modo || raiz.dataset.modo) === 'avatar' ? 'avatar' : 'normal';
       this.estatico = Boolean(opcoes.estatico ?? ('estatico' in raiz.dataset));
-      const svg = SKINS[opcoes.skin || raiz.dataset.skin] || SKINS.robo;
+      this.skin = SKINS[opcoes.skin || raiz.dataset.skin] ? (opcoes.skin || raiz.dataset.skin) : 'robo';
+      const svg = SKINS[this.skin];
 
       raiz.classList.add('nc-mascote');
       raiz.dataset.modo = this.modo;
+      raiz.dataset.skin = this.skin;
       const figura = this.modo === 'normal' && !this.estatico
         ? `<button type="button" class="nc-mascote-botao" aria-label="Mascote do NEOCORTEX. Toque para uma dica.">${svg}</button>`
         : svg;
@@ -276,13 +362,8 @@
       this._aplicar('neutro', 'neutra');
 
       const botao = raiz.querySelector('.nc-mascote-botao');
-      if (botao) {
-        botao.addEventListener('mouseenter', () => this._aoTocar());
-        botao.addEventListener('click', () => {
-          const destino = raiz.dataset.assistenteUrl;
-          if (destino) window.location.href = destino;
-        });
-      }      if (!this.estatico) this._agendarOcioso();
+      if (botao) botao.addEventListener('click', () => this._aoTocar());
+      if (!this.estatico) this._agendarOcioso();
     }
 
     // ---------- configuração ----------
@@ -478,8 +559,13 @@
     }
 
     // ---------- falas ----------
+    _frasesDe(tipo) {
+      const proprias = FRASES_SKIN[this.skin] && FRASES_SKIN[this.skin][tipo];
+      return proprias || FRASES[tipo] || [];
+    }
+
     _escolherFrase(tipo, dados) {
-      const todas = FRASES[tipo] || [];
+      const todas = this._frasesDe(tipo);
       let possiveis = todas.filter((m) => camposDe(m).every((c) => temValor(dados[c])));
       if (possiveis.length > 1) possiveis = possiveis.filter((m) => m !== this.ultimaFrase[tipo]);
       if (!possiveis.length) return '';
@@ -491,7 +577,7 @@
     _doBaralho(tipo) {
       let pilha = this.baralhos[tipo];
       if (!pilha || !pilha.length) {
-        pilha = [...(FRASES[tipo] || [])].sort(() => Math.random() - 0.5);
+        pilha = [...this._frasesDe(tipo)].sort(() => Math.random() - 0.5);
         if (pilha.length > 1 && pilha[pilha.length - 1] === this.ultimaFrase[tipo]) pilha.unshift(pilha.pop());
         this.baralhos[tipo] = pilha;
       }
@@ -516,6 +602,7 @@
 
   Mascote.SKINS = SKINS;
   Mascote.FRASES = FRASES;
+  Mascote.FRASES_SKIN = FRASES_SKIN;
   Mascote.REACOES = REACOES;
   window.NCMascote = Mascote;
 

@@ -76,6 +76,21 @@ COR_ROTINA = "#94A3B8"
 COR_ATRASADA = "#C98A82"  # terracota suave — mesmo princípio de "sem alarme" de antes
 
 
+# [TEMA] catálogo de temas. O padrão é sempre liberado; os outros são recompensa.
+TEMAS = {
+    "padrao": {"nome": "Padrão", "mascote": "robo",
+               "descricao": "O visual original do NEOCORTEX.", "como_liberar": ""},
+    "cafeteria": {"nome": "Cafeteria", "mascote": "grao",
+                  "descricao": "Tons de café e o Grão como mascote.",
+                  "como_liberar": "Crie um objetivo e divida em fragmentos para liberar."},
+}
+
+# [TEMA] só para gravar a apresentação: libera todos os temas e acessórios. Nunca em produção.
+MODO_DEMO = os.getenv("NEOCORTEX_DEMO", "0") == "1"
+if MODO_DEMO and app.config["SESSION_COOKIE_SECURE"]:
+    raise RuntimeError("NEOCORTEX_DEMO=1 não pode ser usado com SESSION_COOKIE_SECURE=1 (produção).")
+
+
 def status_visual(tarefa):
     agora = datetime.now()
 
@@ -121,6 +136,7 @@ def _pagina(pagina, titulo, **extra):
 def _confirmou_conflito():
     return CONFLITO_UI_MODO == "avisar" or request.form.get("confirmar_conflito") in _VERDADEIRO
 
+
 def _mascote_evento(tipo, **dados):
     """[MASCOTE] Guarda uma reação pra próxima página mostrar (as rotas terminam em redirect)."""
     if not GAMIFICACAO_ATIVA:
@@ -128,6 +144,26 @@ def _mascote_evento(tipo, **dados):
     fila = session.get("mascote_eventos", [])
     fila.append({"tipo": tipo, "dados": dados})
     session["mascote_eventos"] = fila[-3:]   # nunca acumula mais que 3
+
+
+def _temas_liberados(id_usuario):
+    """[TEMA] Conjunto de temas que a pessoa já pode usar."""
+    liberados = {"padrao"}
+    if MODO_DEMO or db.buscar_preferencia(id_usuario, "tema_cafeteria_liberado") == "true":
+        liberados.add("cafeteria")
+    return liberados
+
+
+def _verificar_desbloqueio_cafeteria(id_usuario):
+    """[TEMA] Libera a Cafeteria quando existe um objetivo com pelo menos um fragmento.
+    Grava a liberação uma vez; depois disso o tema nunca volta a ser bloqueado."""
+    if not GAMIFICACAO_ATIVA or db.buscar_preferencia(id_usuario, "tema_cafeteria_liberado") == "true":
+        return
+    for objetivo in db.listar_objetivos(id_usuario):
+        if db.listar_fragmentos_objetivo(objetivo["id_objetivo"], id_usuario):
+            db.salvar_preferencia(id_usuario, "tema_cafeteria_liberado", "true")
+            _mascote_evento("conquista", item="Tema Cafeteria")
+            return
 
 
 # ============================================================
@@ -164,6 +200,8 @@ def tela_login():
         except Exception:
             app.logger.exception("Falha na limpeza de retenção (não bloqueia o login)")
         return redirect(url_for("tarefas"))
+
+    return render_template("login.html", erro="E-mail ou senha errados.")
 
 
 def _ler_perfil(form):
@@ -291,7 +329,7 @@ def cadastro_perfil():
         for dia in dias_trabalho:
             dia_db = DIAS_ONBOARDING_PARA_DB.get(dia)
             if dia_db:
-                db.adicionar_rotina(id_usuario, dia_db, "Trabalho", horario_trabalho["start"], horario_trabalho["end"])         
+                db.adicionar_rotina(id_usuario, dia_db, "Trabalho", horario_trabalho["start"], horario_trabalho["end"])
 
     dias_estudo = dados.get("dias_estudo") or []
     horario_estudo = dados.get("horario_estudo")
@@ -312,7 +350,7 @@ def cadastro_perfil():
     hobby_personalizado = dados.get("hobby_personalizado")
     if hobby_personalizado:
         db.associar_hobby(id_usuario, hobby_personalizado)
-    
+
     if dados.get("pico_energia") in {"manha", "tarde", "noite", "nao_sei"}:
         db.salvar_padrao(id_usuario, "energia", dados["pico_energia"])
     if dados.get("areas_melhoria"):
@@ -323,13 +361,15 @@ def cadastro_perfil():
         db.salvar_preferencia(id_usuario, "frequencia_hobbies", dados["frequencia_hobbies"])
     if dados.get("sugestoes_hobbies"):
         db.salvar_preferencia(id_usuario, "quer_sugestoes_hobbies", dados["sugestoes_hobbies"])
-        escolha_acess = dados.get("acessibilidade")
+
+    escolha_acess = dados.get("acessibilidade")
     if escolha_acess == "fonte_grande":
         db.salvar_preferencia(id_usuario, "acess_fonte", "grande")
     elif escolha_acess == "alto_contraste":
         db.salvar_preferencia(id_usuario, "acess_contraste", "alto")
     elif escolha_acess == "dislexia":
         db.salvar_preferencia(id_usuario, "acess_tipografia", "dislexia")
+
     if dados.get("tempo_organizacao"):
         db.salvar_padrao(id_usuario, "tempo_organizacao", dados["tempo_organizacao"])
     if dados.get("tempo_neocortex"):
@@ -477,20 +517,20 @@ def criar_tarefa():
         return resposta
     _mascote_evento("tarefa_criada")   # [MASCOTE]
     return redirect(url_for("tarefas"))
- 
- 
+
+
 @app.route("/tarefas/<int:id_tarefa>/editar", methods=["POST"])
 @login_obrigatorio
 def editar_tarefa(id_tarefa):
     dados = _ler_formulario_tarefa()
     if dados["erro"]:
         return _render_tarefas(erro=dados["erro"], formulario=dados)
- 
+
     # [MASCOTE] guarda o estado antes, pra reconhecer quando uma tarefa atrasada foi remarcada
     agora = datetime.now()
     antes = next((t for t in db.listar_tarefas(usuario_logado()) if t["id_tarefa"] == id_tarefa), None)
     estava_atrasada = bool(antes and antes["status"] in ("pendente", "em_andamento") and antes["data_fim"] < agora)
- 
+
     try:
         resultado = servicos.atualizar_tarefa(
             usuario_logado(), id_tarefa, titulo=dados["titulo"], categoria=dados["categoria"],
@@ -501,13 +541,13 @@ def editar_tarefa(id_tarefa):
     resposta = _resposta_de_tarefa(resultado, dados)
     if resposta:
         return resposta
- 
+
     # [MASCOTE] remarcar uma atrasada pra frente conta como replanejar (não é culpa, é ajuste)
     if estava_atrasada and datetime.fromisoformat(dados["fim"]) > agora:
         _mascote_evento("tarefa_replanejada")
     return redirect(url_for("tarefas"))
- 
- 
+
+
 @app.route("/tarefas/<int:id_tarefa>/concluir", methods=["POST"])
 @login_obrigatorio
 def concluir_tarefa(id_tarefa):
@@ -534,6 +574,7 @@ def desfazer_tarefa(id_tarefa):
         abort(404)
     return redirect(request.referrer or url_for("tarefas"))
 
+
 @app.route("/tarefas/<int:id_tarefa>/cancelar", methods=["POST"])
 @login_obrigatorio
 def cancelar_tarefa_rota(id_tarefa):
@@ -541,6 +582,7 @@ def cancelar_tarefa_rota(id_tarefa):
     if resultado.get("nao_encontrada"):
         abort(404)
     return redirect(request.referrer or url_for("tarefas"))
+
 
 @app.route("/tarefas/<int:id_tarefa>/excluir", methods=["POST"])
 @login_obrigatorio
@@ -550,6 +592,7 @@ def excluir_tarefa(id_tarefa):
         abort(404)
     return redirect(url_for("tarefas"))
 
+
 @app.route("/tarefas/<int:id_tarefa>/reativar", methods=["POST"])
 @login_obrigatorio
 def reativar_tarefa_rota(id_tarefa):
@@ -557,6 +600,7 @@ def reativar_tarefa_rota(id_tarefa):
     if resultado.get("nao_encontrada"):
         abort(404)
     return redirect(request.referrer or url_for("tarefas"))
+
 
 # ============================================================
 # ROTINA FIXA
@@ -678,8 +722,8 @@ def criar_objetivo_rota():
         db.criar_objetivo(usuario_logado(), titulo, prazo=prazo)
         _mascote_evento("objetivo_criado", objetivo=titulo)   # [MASCOTE]
     return redirect(url_for("objetivos"))
- 
- 
+
+
 @app.route("/objetivos/<int:id_objetivo>/concluir", methods=["POST"])
 def concluir_objetivo_rota(id_objetivo):
     if not usuario_logado():
@@ -698,12 +742,14 @@ def excluir_objetivo_rota(id_objetivo):
     db.excluir_objetivo(id_objetivo, usuario_logado())
     return redirect(url_for("objetivos"))
 
+
 @app.route("/objetivos/<int:id_objetivo>/desfazer", methods=["POST"])
 def desfazer_objetivo_rota(id_objetivo):
     if not usuario_logado():
         return redirect(url_for("tela_login"))
     db.atualizar_objetivo(id_objetivo, usuario_logado(), status="em_andamento")
     return redirect(url_for("objetivos"))
+
 
 @app.route("/objetivos/<int:id_objetivo>/editar", methods=["POST"])
 def editar_objetivo_rota(id_objetivo):
@@ -728,6 +774,7 @@ def criar_fragmento_rota(id_objetivo):
         fim = inicio + timedelta(minutes=30)
         db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, titulo, inicio, fim)
         _mascote_evento("tarefa_criada")   # [MASCOTE]
+        _verificar_desbloqueio_cafeteria(usuario_logado())   # [TEMA]
     return redirect(url_for("objetivos"))
 
 
@@ -794,6 +841,10 @@ def novo_objetivo_fragmentar_confirmar():
         fim = inicio + timedelta(minutes=p.get("duracao_min", 30))
         db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, p["titulo"], inicio, fim)
 
+    if propostas:   # [MASCOTE] [TEMA]
+        _mascote_evento("tarefa_criada")
+        _verificar_desbloqueio_cafeteria(usuario_logado())
+
     return jsonify(ok=True, redirect=url_for("objetivos"))
 
 
@@ -843,6 +894,10 @@ def fragmentar_objetivo_confirmar(id_objetivo):
             continue
         fim = inicio + timedelta(minutes=p.get("duracao_min", 30))
         db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, p["titulo"], inicio, fim)
+
+    if propostas:   # [MASCOTE] [TEMA]
+        _mascote_evento("tarefa_criada")
+        _verificar_desbloqueio_cafeteria(usuario_logado())
 
     return jsonify(ok=True, redirect=url_for("objetivos"))
 
@@ -944,16 +999,16 @@ def enviar_mensagem():
     texto = request.form.get("mensagem", "").strip()[:MAX_CARACTERES_MENSAGEM]
     if not texto:
         return redirect(url_for("assistente"))
- 
+
     id_usuario = usuario_logado()
- 
+
     # O histórico é lido antes de gravar a mensagem atual para não duplicá-la no contexto da IA.
     historico = list(reversed(
         db.listar_interacoes(id_usuario, contexto="interacao_geral", limite=10)
     ))
- 
+
     db.registrar_interacao(id_usuario, texto, autor="usuario")
- 
+
     try:
         resposta = ai.responder(id_usuario, texto, historico)
         _mascote_evento("ia_respondeu")   # [MASCOTE] boca mexendo ao chegar a resposta
@@ -961,25 +1016,15 @@ def enviar_mensagem():
         app.logger.exception("Falha ao gerar a resposta da IA (usuário %s)", id_usuario)
         resposta = "Deu um problema pra falar com a IA agora. Tenta de novo em um instante."
         _mascote_evento("ia_erro")        # [MASCOTE] expressão de confusão
- 
+
     # A resposta é salva no histórico para manter continuidade entre as mensagens.
     db.registrar_interacao(id_usuario, resposta, autor="assistente")
     return redirect(url_for("assistente"))
 
 
 # ==============================================================
-# MASCOTE
+# MASCOTE, LOJA, JORNADA E TEMAS
 # ==============================================================
-
-
-@app.route("/configuracoes/mascote", methods=["POST"])
-@login_obrigatorio
-def salvar_mascote():
-    intensidade = request.form.get("mascote_animacao")
-    if intensidade in ("completa", "reduzida", "desligada"):
-        db.salvar_preferencia(usuario_logado(), "mascote_intensidade", intensidade)
-    return redirect(url_for("configuracoes"))
-
 ACESSORIOS_MASCOTE = [
     {"id": "oculos", "nome": "Óculos", "pontos_min": 100},
     {"id": "gorro", "nome": "Gorro", "pontos_min": 300},
@@ -988,7 +1033,136 @@ ACESSORIOS_MASCOTE = [
 
 
 def acessorios_desbloqueados(pontos):
+    if MODO_DEMO:   # [TEMA] gravação da apresentação: todos liberados
+        return {a["id"] for a in ACESSORIOS_MASCOTE}
     return {a["id"] for a in ACESSORIOS_MASCOTE if pontos >= a["pontos_min"]}
+
+
+NIVEIS_MASCOTE = [
+    {"nivel": 1, "pontos_min": 0,   "nome": "Começando junto",     "frases_extra": False, "acessorio": None,       "animado": False},
+    {"nivel": 2, "pontos_min": 100, "nome": "Pegando o ritmo",     "frases_extra": True,  "acessorio": "oculos",   "animado": False},
+    {"nivel": 3, "pontos_min": 300, "nome": "Parceria de verdade", "frases_extra": True,  "acessorio": "gorro",    "animado": True},
+    {"nivel": 4, "pontos_min": 600, "nome": "Dupla afiada",        "frases_extra": True,  "acessorio": "cachecol", "animado": True},
+]
+
+
+def nivel_mascote(pontos):
+    atual = NIVEIS_MASCOTE[0]
+    for n in NIVEIS_MASCOTE:
+        if pontos >= n["pontos_min"]:
+            atual = n
+        else:
+            break
+    return atual
+
+
+@app.context_processor
+def injetar_mascote():
+    """[MASCOTE] [TEMA] Pontos, acessório, tema e eventos, num lugar só (um único pop dos eventos)."""
+    if not GAMIFICACAO_ATIVA or not usuario_logado():
+        return {"mascote_ativo": False, "tema_ativo": "padrao", "mascote_skin": "robo"}
+
+    id_usuario = usuario_logado()
+    pontos = db.calcular_pontos_mascote(id_usuario)
+    atual = nivel_mascote(pontos)
+    proximo = next((n for n in NIVEIS_MASCOTE if n["pontos_min"] > pontos), None)
+    if proximo:
+        faixa = proximo["pontos_min"] - atual["pontos_min"]
+        progresso_pct = int(((pontos - atual["pontos_min"]) / faixa) * 100) if faixa else 100
+    else:
+        progresso_pct = 100
+
+    equipado = db.buscar_preferencia(id_usuario, "mascote_acessorio_equipado") or "nenhum"
+    if equipado not in acessorios_desbloqueados(pontos):
+        equipado = "nenhum"
+
+    intensidade = db.buscar_preferencia(id_usuario, "mascote_intensidade") or ""
+    liberados = _temas_liberados(id_usuario)
+    tema = db.buscar_preferencia(id_usuario, "tema_visual") or "padrao"
+    if tema not in liberados:
+        tema = "padrao"
+
+    return {
+        "mascote_ativo": True,
+        "mascote_eventos": session.pop("mascote_eventos", []),
+        "mascote_intensidade": intensidade if intensidade in INTENSIDADES_MASCOTE else "",
+        "mascote_nivel": atual,
+        "mascote_pontos": pontos,
+        "mascote_proximo_nivel": proximo,
+        "mascote_progresso_pct": progresso_pct,
+        "mascote_acessorio": equipado,
+        "tema_ativo": tema,
+        "mascote_skin": TEMAS[tema]["mascote"],
+        "temas": {tid: {**info, "liberado": tid in liberados} for tid, info in TEMAS.items()},
+    }
+
+
+@app.route("/configuracoes/mascote", methods=["POST"])
+@login_obrigatorio
+def salvar_mascote():
+    intensidade = request.form.get("mascote_animacao")
+    if intensidade in INTENSIDADES_MASCOTE:
+        db.salvar_preferencia(usuario_logado(), "mascote_intensidade", intensidade)
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/tema", methods=["POST"])
+@login_obrigatorio
+def salvar_tema():
+    """[TEMA] Troca o tema. Só aceita temas já liberados; nada nos dados muda."""
+    escolha = request.form.get("tema", "")
+    if escolha in TEMAS and escolha in _temas_liberados(usuario_logado()):
+        db.salvar_preferencia(usuario_logado(), "tema_visual", escolha)
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/mascote/loja")
+@login_obrigatorio
+def mascote_loja():
+    pontos = db.calcular_pontos_mascote(usuario_logado())
+    desbloqueados = acessorios_desbloqueados(pontos)
+    equipado = db.buscar_preferencia(usuario_logado(), "mascote_acessorio_equipado") or "nenhum"
+    return render_template(
+        "mascote_loja.html",
+        acessorios=ACESSORIOS_MASCOTE,
+        desbloqueados=desbloqueados,
+        equipado_atual=equipado,
+        **_pagina("mascote_loja", "Loja"),
+    )
+
+
+@app.route("/mascote/loja/equipar", methods=["POST"])
+@login_obrigatorio
+def equipar_acessorio():
+    escolha = request.form.get("acessorio", "nenhum")
+    pontos = db.calcular_pontos_mascote(usuario_logado())
+    if escolha != "nenhum" and escolha not in acessorios_desbloqueados(pontos):
+        abort(403)  # tentou equipar algo que não desbloqueou
+    db.salvar_preferencia(usuario_logado(), "mascote_acessorio_equipado", escolha)
+    return redirect(url_for("mascote_loja"))
+
+
+@app.route("/jornada")
+@login_obrigatorio
+def jornada():
+    pontos = db.calcular_pontos_mascote(usuario_logado())
+    nivel_atual = nivel_mascote(pontos)
+    nos = []
+    for i, n in enumerate(NIVEIS_MASCOTE):
+        if n["nivel"] == nivel_atual["nivel"]:
+            status = "atual"
+        elif pontos >= n["pontos_min"]:
+            status = "concluido"
+        else:
+            status = "bloqueado"
+        nos.append({
+            **n,
+            "x": 150 if i % 2 == 0 else 346,
+            "y": 70 + i * 170,
+            "status": status,
+        })
+    altura_svg = 70 + len(NIVEIS_MASCOTE) * 170
+    return render_template("jornada.html", nos=nos, altura_svg=altura_svg, **_pagina("jornada", "Jornada"))
 
 
 # ============================================================
@@ -998,6 +1172,7 @@ def acessorios_desbloqueados(pontos):
 @app.route("/configuracoes")
 @login_obrigatorio
 def configuracoes():
+    _verificar_desbloqueio_cafeteria(usuario_logado())   # [TEMA] cobre quem já tinha fragmentos
     notificacoes_ativas = db.buscar_preferencia(usuario_logado(), "notificacoes_ativas") == "true"
     return render_template(
         "configuracoes.html",
@@ -1073,6 +1248,27 @@ def exportar_dados():
     )
 
 
+@app.route("/configuracoes/notificacoes", methods=["POST"])
+@login_obrigatorio
+def salvar_notificacoes():
+    ativado = request.form.get("notificacoes_ativas") == "on"
+    db.salvar_preferencia(usuario_logado(), "notificacoes_ativas", "true" if ativado else "false")
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/excluir-conta", methods=["POST"])
+@login_obrigatorio
+def excluir_conta():
+    senha_atual = request.form.get("senha_atual", "")
+    usuario = db.buscar_usuario(usuario_logado())
+    if not usuario or not bcrypt.checkpw(senha_atual.encode("utf-8"), usuario["senha_hash"].encode("utf-8")):
+        return redirect(url_for("configuracoes", erro="senha_atual"))
+
+    db.excluir_usuario(usuario_logado())
+    session.clear()
+    return redirect(url_for("tela_login"))
+
+
 TAGS_MARKDOWN_PERMITIDAS = ["p", "br", "strong", "em", "b", "i", "ul", "ol", "li", "h1", "h2", "h3", "h4", "code", "pre", "blockquote", "a"]
 ATRIBUTOS_MARKDOWN_PERMITIDOS = {"a": ["href", "title"]}
 
@@ -1083,6 +1279,7 @@ def renderizar_markdown(texto):
 
 
 app.jinja_env.filters["markdown"] = renderizar_markdown
+
 
 @app.context_processor
 def injetar_acessibilidade():
@@ -1107,131 +1304,6 @@ def salvar_acessibilidade():
         if valor:
             db.salvar_preferencia(usuario_logado(), chave, valor)
     return redirect(url_for("configuracoes"))
-    
-
-
-
-# =============================================
-# MASCOTE
-# =============================================
-
-NIVEIS_MASCOTE = [
-    {"nivel": 1, "pontos_min": 0,   "nome": "Começando junto",     "frases_extra": False, "acessorio": None,       "animado": False},
-    {"nivel": 2, "pontos_min": 100, "nome": "Pegando o ritmo",     "frases_extra": True,  "acessorio": "oculos",   "animado": False},
-    {"nivel": 3, "pontos_min": 300, "nome": "Parceria de verdade", "frases_extra": True,  "acessorio": "gorro",    "animado": True},
-    {"nivel": 4, "pontos_min": 600, "nome": "Dupla afiada",        "frases_extra": True,  "acessorio": "cachecol", "animado": True},
-]
-
-
-def nivel_mascote(pontos):
-    atual = NIVEIS_MASCOTE[0]
-    for n in NIVEIS_MASCOTE:
-        if pontos >= n["pontos_min"]:
-            atual = n
-        else:
-            break
-    return atual
-
-
-@app.context_processor
-def injetar_mascote():
-    if not usuario_logado() or not GAMIFICACAO_ATIVA:
-        return {"mascote_ativo": False}
-    pontos = db.calcular_pontos_mascote(usuario_logado())
-    atual = nivel_mascote(pontos)
-    proximo = next((n for n in NIVEIS_MASCOTE if n["pontos_min"] > pontos), None)
-    if proximo:
-        faixa = proximo["pontos_min"] - atual["pontos_min"]
-        progresso_pct = int(((pontos - atual["pontos_min"]) / faixa) * 100) if faixa else 100
-    else:
-        progresso_pct = 100
-
-    desbloqueados = acessorios_desbloqueados(pontos)
-    equipado = db.buscar_preferencia(usuario_logado(), "mascote_acessorio_equipado") or "nenhum"
-    if equipado not in desbloqueados:
-        equipado = "nenhum"
-
-    return {
-        "mascote_nivel": atual,
-        "mascote_pontos": pontos,
-        "mascote_proximo_nivel": proximo,
-        "mascote_progresso_pct": progresso_pct,
-        "mascote_acessorio": equipado,
-        "mascote_ativo": True,
-        "mascote_intensidade": db.buscar_preferencia(usuario_logado(), "mascote_intensidade") or "",
-        "mascote_eventos": session.pop("mascote_eventos", []),
-    }
-
-@app.route("/configuracoes/notificacoes", methods=["POST"])
-@login_obrigatorio
-def salvar_notificacoes():
-    ativado = request.form.get("notificacoes_ativas") == "on"
-    db.salvar_preferencia(usuario_logado(), "notificacoes_ativas", "true" if ativado else "false")
-    return redirect(url_for("configuracoes"))
-
-@app.route("/configuracoes/excluir-conta", methods=["POST"])
-@login_obrigatorio
-def excluir_conta():
-    senha_atual = request.form.get("senha_atual", "")
-    usuario = db.buscar_usuario(usuario_logado())
-    if not usuario or not bcrypt.checkpw(senha_atual.encode("utf-8"), usuario["senha_hash"].encode("utf-8")):
-        return redirect(url_for("configuracoes", erro="senha_atual"))
-
-    db.excluir_usuario(usuario_logado())
-    session.clear()
-    return redirect(url_for("tela_login"))
-
-@app.route("/mascote/loja")
-@login_obrigatorio
-def mascote_loja():
-    pontos = db.calcular_pontos_mascote(usuario_logado())
-    desbloqueados = acessorios_desbloqueados(pontos)
-    equipado = db.buscar_preferencia(usuario_logado(), "mascote_acessorio_equipado") or "nenhum"
-    return render_template(
-        "mascote_loja.html",
-        acessorios=ACESSORIOS_MASCOTE,
-        desbloqueados=desbloqueados,
-        equipado_atual=equipado,
-        **_pagina("mascote_loja", "Loja"),
-    )
-
-
-@app.route("/mascote/loja/equipar", methods=["POST"])
-@login_obrigatorio
-def equipar_acessorio():
-    escolha = request.form.get("acessorio", "nenhum")
-    pontos = db.calcular_pontos_mascote(usuario_logado())
-    if escolha != "nenhum" and escolha not in acessorios_desbloqueados(pontos):
-        abort(403)  # tentou equipar algo que não desbloqueou
-    db.salvar_preferencia(usuario_logado(), "mascote_acessorio_equipado", escolha)
-    return redirect(url_for("mascote_loja"))
-
-
-@app.route("/jornada")
-@login_obrigatorio
-def jornada():
-    pontos = db.calcular_pontos_mascote(usuario_logado())
-    nivel_atual = nivel_mascote(pontos)
-    nos = []
-    for i, n in enumerate(NIVEIS_MASCOTE):
-        if n["nivel"] == nivel_atual["nivel"]:
-            status = "atual"
-        elif pontos >= n["pontos_min"]:
-            status = "concluido"
-        else:
-            status = "bloqueado"
-        nos.append({
-            **n,
-            "x": 150 if i % 2 == 0 else 346,
-            "y": 70 + i * 170,
-            "status": status,
-        })
-    altura_svg = 70 + len(NIVEIS_MASCOTE) * 170
-    return render_template("jornada.html", nos=nos, altura_svg=altura_svg, **_pagina("jornada", "Jornada"))
-
-
-
-
 
 
 if __name__ == "__main__":

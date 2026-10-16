@@ -46,7 +46,7 @@
 {% macro avatar_assistente(vivo) %}
   {% if mascote_ativo %}
   <div class="nc-chat-avatar">
-    <div data-nc-mascote data-modo="avatar" data-intensidade="{{ mascote_intensidade }}"{{ '' if vivo else ' data-estatico' }}></div>
+    <div data-nc-mascote data-modo="avatar" data-skin="{{ mascote_skin }}" data-intensidade="{{ mascote_intensidade }}"{{ '' if vivo else ' data-estatico' }}></div>
   </div>
   {% else %}
   <div class="chat-avatar-simples">◈</div>
@@ -137,7 +137,8 @@
             '<div class="chat-bubble-assist nc-chat-pensando">Pensando…</div>';
           lista.appendChild(linhaIA);
           const robo = new window.NCMascote(linhaIA.querySelector('.nc-chat-avatar > div'), {
-            modo: 'avatar', intensidade: {{ (mascote_intensidade or '')|tojson }} || undefined,
+            modo: 'avatar', skin: {{ (mascote_skin or 'robo')|tojson }},
+            intensidade: {{ (mascote_intensidade or '')|tojson }} || undefined,
           });
           robo.reage('ia_pensando');
         }

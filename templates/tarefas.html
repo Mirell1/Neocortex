@@ -8,10 +8,13 @@
   <div
     style="display:inline-flex;background:var(--nc-surface);border:1px solid var(--nc-border);border-radius:10px;padding:4px;margin-bottom:12px;">
     <a href="{{ url_for('tarefas', filtro='hoje', categoria=categoria_filtro) }}"
+      class="{{ 'nc-aba-ativa' if filtro == 'hoje' else '' }}"
       style="padding:7px 18px;border-radius:7px;text-decoration:none;font-size:13px;font-weight:700;{{ 'background:linear-gradient(135deg, #2563EB, #7C3AED);color:white;' if filtro == 'hoje' else 'color:var(--nc-text2);' }}">Hoje</a>
     <a href="{{ url_for('tarefas', filtro='proximas', categoria=categoria_filtro) }}"
+      class="{{ 'nc-aba-ativa' if filtro == 'proximas' else '' }}"
       style="padding:7px 18px;border-radius:7px;text-decoration:none;font-size:13px;font-weight:700;{{ 'background:linear-gradient(135deg, #2563EB, #7C3AED);color:white;' if filtro == 'proximas' else 'color:var(--nc-text2);' }}">Próximas</a>
     <a href="{{ url_for('tarefas', filtro='todas', categoria=categoria_filtro) }}"
+      class="{{ 'nc-aba-ativa' if filtro == 'todas' else '' }}"
       style="padding:7px 18px;border-radius:7px;text-decoration:none;font-size:13px;font-weight:700;{{ 'background:linear-gradient(135deg, #2563EB, #7C3AED);color:white;' if filtro == 'todas' else 'color:var(--nc-text2);' }}">Todas</a>
   </div>
 

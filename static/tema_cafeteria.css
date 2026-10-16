@@ -1,0 +1,90 @@
+/* ============================================================
+   NEOCORTEX - Tema Cafeteria  ->  static/tema_cafeteria.css
+   Só vale com <html data-tema="cafeteria">. Não muda estrutura:
+   redefine as variáveis e as classes que já existem no common.css.
+   Cores de STATUS (verde concluída, âmbar em andamento...) ficam
+   iguais de propósito: o significado não muda com o tema.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+
+[data-tema="cafeteria"] {
+  --nc-bg: #F5EDE3;
+  --nc-surface: #FFFBF6;
+  --nc-border: #E6D6C4;
+  --nc-text: #3B2A22;
+  --nc-text2: #6B5446;
+  --nc-blue: #8A4B12;      /* destaque principal (caramelo escuro) */
+  --nc-purple: #8A5A44;
+
+  --cafe-expresso: #3B2A22;
+  --cafe-torra: #6F3F22;
+  --cafe-caramelo: #B5793E;
+  --cafe-creme: #F3DFC6;
+  --cafe-destaque: #8A4B12;
+  --cafe-titulo: 'Fraunces', Georgia, serif;
+}
+.dark[data-tema="cafeteria"] {
+  --nc-bg: #1E1612;
+  --nc-surface: #2A201A;
+  --nc-border: #4A3A2F;
+  --nc-text: #F5EDE3;
+  --nc-text2: #C9B3A2;
+  --nc-blue: #E0A96D;
+  --nc-purple: #C08A6B;
+  --cafe-destaque: #E0A96D;
+}
+
+/* ---------- títulos ---------- */
+[data-tema="cafeteria"] .app-topbar h2 { font-family: var(--cafe-titulo); font-weight: 700; letter-spacing: 0; }
+
+/* ---------- menu lateral ---------- */
+[data-tema="cafeteria"] .app-sidebar { background: var(--cafe-expresso); }
+.dark[data-tema="cafeteria"] .app-sidebar { background: #140E0B; }
+[data-tema="cafeteria"] .app-sidebar .blob1 { background: rgba(201, 138, 75, 0.30); }
+[data-tema="cafeteria"] .app-sidebar .blob2 { background: rgba(243, 223, 198, 0.10); }
+[data-tema="cafeteria"] .app-sidebar a { color: rgba(243, 223, 198, 0.78); }
+[data-tema="cafeteria"] .app-sidebar a:hover { background: rgba(243, 223, 198, 0.10); color: #FFFFFF; }
+[data-tema="cafeteria"] .app-sidebar a.active { background: var(--cafe-creme); color: var(--cafe-expresso); }
+[data-tema="cafeteria"] .app-sidebar a.logout { color: #F2B8A8; }
+
+/* ---------- botões, campos e controles ---------- */
+[data-tema="cafeteria"] .btn-primary {
+  background: var(--cafe-torra);
+  box-shadow: 0 4px 16px rgba(59, 42, 34, 0.25);
+}
+.dark[data-tema="cafeteria"] .btn-primary { background: #B5793E; color: #1E1612; }
+[data-tema="cafeteria"] .btn-outline:hover,
+[data-tema="cafeteria"] .btn-ghost-sm:hover { border-color: var(--cafe-destaque); color: var(--cafe-destaque); }
+[data-tema="cafeteria"] .nc-input:focus,
+[data-tema="cafeteria"] .app-topbar .search:focus { border-color: var(--cafe-destaque); }
+[data-tema="cafeteria"] .chip.active { border-color: var(--cafe-destaque); background: rgba(181, 121, 62, 0.14); color: var(--cafe-destaque); }
+[data-tema="cafeteria"] .nc-toggle.on { background: var(--cafe-torra); }
+[data-tema="cafeteria"] .app-topbar .avatar,
+[data-tema="cafeteria"] .fab { background: var(--cafe-torra); box-shadow: 0 10px 24px rgba(59, 42, 34, 0.30); }
+[data-tema="cafeteria"] .nc-card { border-radius: 20px; box-shadow: 0 6px 18px rgba(59, 42, 34, 0.07); }
+
+/* ---------- chat ---------- */
+[data-tema="cafeteria"] .chat-bubble-user { background: var(--cafe-torra); box-shadow: 0 4px 16px rgba(59, 42, 34, 0.22); }
+[data-tema="cafeteria"] .chat-avatar-simples { background: var(--cafe-torra); }
+
+/* ---------- calendário ---------- */
+[data-tema="cafeteria"] .cal-head-day.is-today .wd { color: var(--cafe-destaque); }
+[data-tema="cafeteria"] .cal-head-day.is-today .num,
+[data-tema="cafeteria"] .cal-day-big { background: var(--cafe-torra); }
+[data-tema="cafeteria"] .cal-col-today { background-color: rgba(181, 121, 62, 0.07); }
+[data-tema="cafeteria"] .cal-cell-day:hover { box-shadow: inset 0 0 0 2px rgba(181, 121, 62, 0.45); }
+
+/* ---------- elementos com cor inline nos templates (marcados com classe) ---------- */
+/* dashboard: cartão "Progresso de hoje" */
+[data-tema="cafeteria"] .nc-hero-progresso {
+  background: linear-gradient(155deg, #3B2A22 0%, #6F3F22 60%, #9C6236 100%) !important;
+}
+[data-tema="cafeteria"] .nc-barra-progresso { background: linear-gradient(90deg, #E0A96D, #FFF8F0) !important; }
+/* tarefas: aba ativa (Hoje / Próximas / Todas) */
+[data-tema="cafeteria"] .nc-aba-ativa { background: var(--cafe-torra) !important; color: #FFFFFF !important; }
+
+/* ---------- robô flutuante: balão combinando ---------- */
+[data-tema="cafeteria"] .nc-mascote-dock .nc-mascote-balao { border-color: #E2CDB6; }
+
+/* acessibilidade tem prioridade sobre o tema: a fonte para dislexia vale também nos títulos */
+html[data-tipografia="dislexia"] .app-topbar h2 { font-family: 'Lexend', sans-serif; }

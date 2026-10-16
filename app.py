@@ -83,6 +83,9 @@ TEMAS = {
     "cafeteria": {"nome": "Cafeteria", "mascote": "grao",
                   "descricao": "Tons de café e o Grão como mascote.",
                   "como_liberar": "Crie um objetivo e divida em fragmentos para liberar."},
+    "campeonato": {"nome": "Campeonato", "mascote": "boltz",
+                   "descricao": "Futebol: verde e dourado, com o Boltz como mascote.",
+                   "como_liberar": "Remarque uma tarefa atrasada em vez de deixá-la pra trás para liberar."},
 }
 
 # [TEMA] só para gravar a apresentação: libera todos os temas e acessórios. Nunca em produção.
@@ -149,9 +152,18 @@ def _mascote_evento(tipo, **dados):
 def _temas_liberados(id_usuario):
     """[TEMA] Conjunto de temas que a pessoa já pode usar."""
     liberados = {"padrao"}
-    if MODO_DEMO or db.buscar_preferencia(id_usuario, "tema_cafeteria_liberado") == "true":
-        liberados.add("cafeteria")
+    for tid in TEMAS:
+        if tid != "padrao" and (MODO_DEMO or db.buscar_preferencia(id_usuario, f"tema_{tid}_liberado") == "true"):
+            liberados.add(tid)
     return liberados
+
+
+def _liberar_tema(id_usuario, tid):
+    """[TEMA] Libera um tema uma única vez e avisa pelo mascote. Nunca volta a bloquear."""
+    if not GAMIFICACAO_ATIVA or db.buscar_preferencia(id_usuario, f"tema_{tid}_liberado") == "true":
+        return
+    db.salvar_preferencia(id_usuario, f"tema_{tid}_liberado", "true")
+    _mascote_evento("conquista", item=f"Tema {TEMAS[tid]['nome']}")
 
 
 def _verificar_desbloqueio_cafeteria(id_usuario):
@@ -161,8 +173,7 @@ def _verificar_desbloqueio_cafeteria(id_usuario):
         return
     for objetivo in db.listar_objetivos(id_usuario):
         if db.listar_fragmentos_objetivo(objetivo["id_objetivo"], id_usuario):
-            db.salvar_preferencia(id_usuario, "tema_cafeteria_liberado", "true")
-            _mascote_evento("conquista", item="Tema Cafeteria")
+            _liberar_tema(id_usuario, "cafeteria")
             return
 
 
@@ -545,6 +556,7 @@ def editar_tarefa(id_tarefa):
     # [MASCOTE] remarcar uma atrasada pra frente conta como replanejar (não é culpa, é ajuste)
     if estava_atrasada and datetime.fromisoformat(dados["fim"]) > agora:
         _mascote_evento("tarefa_replanejada")
+        _liberar_tema(usuario_logado(), "campeonato")   # [TEMA]
     return redirect(url_for("tarefas"))
 
 

@@ -146,7 +146,62 @@
 </svg>`;
 
   // um visual por tema: o mascote segue o tema escolhido pela pessoa
-  const SKINS = { robo: SVG_ROBO, grao: SVG_GRAO };
+  const SVG_BOLTZ = `
+<svg class="nc-mascote-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs><clipPath id="nc-bola-{{uid}}"><circle cx="100" cy="90" r="60"/></clipPath></defs>
+  <ellipse class="nc-sombra" cx="100" cy="192" rx="48" ry="5.5"/>
+  <g class="nc-corpo"><g class="nc-giro">
+    <g class="nc-pernas">
+      <path d="M84 146 L82 168 M116 146 L118 168"/>
+      <path class="chuteira" d="M62 182 Q62 168 76 168 L86 168 Q92 168 92 177 L92 182 Z"/>
+      <path class="chuteira" d="M138 182 Q138 168 124 168 L114 168 Q108 168 108 177 L108 182 Z"/>
+      <circle class="trava" cx="70" cy="184" r="2"/><circle class="trava" cx="84" cy="184" r="2"/>
+      <circle class="trava" cx="116" cy="184" r="2"/><circle class="trava" cx="130" cy="184" r="2"/>
+    </g>
+    <g class="nc-braco nc-braco-esq"><path class="haste" d="M42 98 Q26 104 26 120"/><circle class="luva" cx="26" cy="124" r="8"/></g>
+    <g class="nc-braco nc-braco-dir"><path class="haste" d="M158 98 Q174 104 174 120"/><circle class="luva" cx="174" cy="124" r="8"/></g>
+    <circle class="nc-bola" cx="100" cy="90" r="60"/>
+    <g class="nc-gomos" clip-path="url(#nc-bola-{{uid}})">
+      <path d="M100 26 L118 38 L112 56 L88 56 L82 38 Z"/>
+      <path d="M36 70 L54 64 L62 82 L50 100 L34 96 Z"/>
+      <path d="M164 70 L146 64 L138 82 L150 100 L166 96 Z"/>
+      <path d="M58 138 L68 124 L86 132 L84 150 L64 152 Z"/>
+      <path d="M142 138 L132 124 L114 132 L116 150 L136 152 Z"/>
+    </g>
+    <g class="nc-costuras" clip-path="url(#nc-bola-{{uid}})">
+      <path d="M88 56 L72 70 M112 56 L128 70 M62 82 L72 70 M138 82 L128 70 M50 100 L58 118 M150 100 L142 118 M68 124 L58 118 M132 124 L142 118"/>
+    </g>
+    <path class="nc-costura-luz" d="M82 38 Q100 30 118 38"/>
+    <circle class="nc-bola-contorno" cx="100" cy="90" r="60"/>
+    <g class="nc-bochechas"><circle cx="66" cy="110" r="7"/><circle cx="134" cy="110" r="7"/></g>
+
+    <g class="nc-olhos nc-olhos-neutra"><ellipse cx="84" cy="90" rx="6.5" ry="8.5"/><ellipse cx="116" cy="90" rx="6.5" ry="8.5"/><circle class="brilho" cx="86.5" cy="86.5" r="2.2"/><circle class="brilho" cx="118.5" cy="86.5" r="2.2"/></g>
+    <g class="nc-olhos nc-olhos-feliz"><path d="M76 94 Q84 83 92 94"/><path d="M108 94 Q116 83 124 94"/></g>
+    <g class="nc-olhos nc-olhos-fechados"><path d="M76 90 Q84 97 92 90"/><path d="M108 90 Q116 97 124 90"/></g>
+    <g class="nc-olhos nc-olhos-estrela"><path class="cheio" d="M84.0 79.0 L86.8 86.2 L94.5 86.6 L88.5 91.5 L90.5 98.9 L84.0 94.7 L77.5 98.9 L79.5 91.5 L73.5 86.6 L81.2 86.2 Z"/><path class="cheio" d="M116.0 79.0 L118.8 86.2 L126.5 86.6 L120.5 91.5 L122.5 98.9 L116.0 94.7 L109.5 98.9 L111.5 91.5 L105.5 86.6 L113.2 86.2 Z"/></g>
+    <g class="nc-olhos nc-olhos-pensando"><ellipse cx="88" cy="85" rx="5.5" ry="7.5"/><ellipse cx="120" cy="85" rx="5.5" ry="7.5"/></g>
+    <g class="nc-olhos nc-olhos-confuso"><ellipse cx="84" cy="88" rx="7" ry="9.5"/><ellipse cx="116" cy="92" rx="5" ry="5"/></g>
+    <g class="nc-olhos nc-olhos-piscadela"><ellipse cx="84" cy="90" rx="6.5" ry="8.5"/><path d="M108 94 Q116 83 124 94"/></g>
+    <g class="nc-olhos nc-olhos-surpresa"><ellipse cx="84" cy="89" rx="8" ry="10.5"/><ellipse cx="116" cy="89" rx="8" ry="10.5"/></g>
+
+    <path class="nc-boca nc-boca-neutra" d="M93 108 Q100 114 107 108"/>
+    <path class="nc-boca nc-boca-feliz" d="M89 106 Q100 123 111 106 Z"/>
+    <path class="nc-boca nc-boca-fechados" d="M94 111 L106 111"/>
+    <g class="nc-boca nc-boca-pensando"><circle cx="91" cy="111" r="3"/><circle cx="100" cy="111" r="3"/><circle cx="109" cy="111" r="3"/></g>
+    <path class="nc-boca nc-boca-confuso" d="M90 111 Q95 105 100 111 Q105 117 110 111"/>
+    <ellipse class="nc-boca nc-boca-falando" cx="100" cy="110" rx="6" ry="5"/>
+    <ellipse class="nc-boca nc-boca-surpresa" cx="100" cy="112" rx="5" ry="6.5"/>
+
+    <g class="nc-faiscas">
+      <circle cx="100" cy="20" r="5"/><circle cx="60" cy="30" r="4"/><circle cx="140" cy="30" r="4"/><circle cx="26" cy="70" r="4"/>
+      <circle cx="174" cy="70" r="4"/><circle cx="18" cy="140" r="4"/><circle cx="182" cy="140" r="4"/><circle cx="100" cy="160" r="4"/>
+    </g>
+  </g></g>
+  <text class="nc-interrogacao" x="156" y="36">?</text>
+  <g class="nc-zzz"><text x="150" y="40">z</text><text x="162" y="28">z</text><text x="174" y="16">z</text></g>
+</svg>`;
+
+  const SKINS = { robo: SVG_ROBO, grao: SVG_GRAO, boltz: SVG_BOLTZ };
 
   // expressão -> [olhos, boca]
   const EXPRESSOES = {
@@ -272,6 +327,32 @@
       tarefa_replanejada: ['Pedido remarcado. Melhor servir na hora certa.', 'Nova data definida. Ajustar faz parte.'],
       descanso: ['Hoje a cafeteria fecha mais cedo.', 'Pausa pro café. Descanso também conta.'],
     },
+    // Campeonato: o vocabulário é de futebol, mas sem adversário, derrota ou placar contra
+    boltz: {
+      saudacao_manha: [
+        'Bom dia! A escalação de hoje tem {pendentes} tarefas.',
+        'Bom dia! Bora aquecer pro dia?',
+        'Bom dia. Uma jogada de cada vez.',
+      ],
+      saudacao_tarde: [
+        'Boa tarde! Segundo tempo começando.',
+        'Boa tarde! Ainda há {pendentes} tarefas em campo.',
+      ],
+      saudacao_noite: [
+        'Boa noite! Que tal revisar o dia com calma?',
+        'Boa noite. O que ficou pra amanhã entra na próxima escalação.',
+      ],
+      saudacao_madrugada: ['Já é tarde. Até o craque precisa descansar.', 'Hora do vestiário. O resto pode esperar.'],
+      saudacao_livre: ['Nenhuma tarefa escalada pra hoje. Bom momento pra planejar ou descansar.'],
+      toque: DICAS_E_CURIOSIDADES.concat(['Embaixadinha número um... dois... opa!', 'Quer ver um drible? Brincadeira, bora organizar.']),
+      toque_insistente: ['Ei, eu sou a bola, mas não precisa chutar tanto!', 'Opa, quase saí de campo! Tudo certo.'],
+      tarefa_concluida: ['GOOOL! Mais uma tarefa concluída.', 'Golaço!', 'Bola na rede. Uma a menos.', 'Mais uma pra conta do dia.'],
+      tarefa_criada: ['Tarefa escalada.', 'Entrou na escalação.'],
+      dia_concluido: ['Todas as tarefas de hoje concluídas!', 'Dia completo. Agora é descanso no vestiário.'],
+      objetivo_concluido: ['É campeão! Objetivo concluído.', 'Objetivo concluído: {objetivo}. Troféu merecido.'],
+      tarefa_replanejada: ['Sem problema, ajustei a escalação.', 'Mudança tática: tarefa remarcada.'],
+      descanso: ['Intervalo também faz parte do jogo.', 'Hoje é dia de descanso no vestiário.'],
+    },
   };
 
   // ------------------------------------------------------------
@@ -301,6 +382,7 @@
   const JANELA_LOTE_MS = 12000;   // maior que no protótipo: cada conclusão recarrega a página
   const TEMPO_BALAO_MS = 4200;
   const ESPERA_TOQUE_MS = 1200;
+  let contadorInstancias = 0;   // ids únicos dentro dos SVGs (ex.: clipPath do Boltz)
 
   const camposDe = (m) => [...m.matchAll(/\{(\w+)\}/g)].map((x) => x[1]);
   const temValor = (v) => v !== undefined && v !== null && String(v).trim() !== '';
@@ -330,7 +412,7 @@
       this.modo = (opcoes.modo || raiz.dataset.modo) === 'avatar' ? 'avatar' : 'normal';
       this.estatico = Boolean(opcoes.estatico ?? ('estatico' in raiz.dataset));
       this.skin = SKINS[opcoes.skin || raiz.dataset.skin] ? (opcoes.skin || raiz.dataset.skin) : 'robo';
-      const svg = SKINS[this.skin];
+      const svg = SKINS[this.skin].replaceAll('{{uid}}', `m${++contadorInstancias}`);
 
       raiz.classList.add('nc-mascote');
       raiz.dataset.modo = this.modo;

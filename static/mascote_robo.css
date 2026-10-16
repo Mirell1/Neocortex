@@ -424,3 +424,70 @@
   100% { transform: translateY(-8px) scaleY(1.05); opacity: 0; }
 }
 @keyframes nc-faixa-brilha { 0%, 100% { fill: var(--nc-mascote-cor); } 45% { fill: var(--nc-sinal); } }
+
+/* ============================================================
+   VISUAL: BOLTZ (tema Campeonato) - data-skin="boltz"
+   Bola viva com braços e chuteiras. Mesmo rosto e estados do robô.
+   ============================================================ */
+.nc-mascote[data-skin="boltz"] {
+  --nc-mascote-cor: #18A575;      /* costura luminosa, chuteiras, partículas */
+  --nc-mascote-brilho: #D8EFE5;
+  --nc-sinal: #D8B565;            /* dourado das comemorações */
+  --nc-boltz-tinta: #14213D;
+  --nc-boltz-gomo: #253552;
+}
+.dark .nc-mascote[data-skin="boltz"] { --nc-boltz-gomo: #2E4166; }
+
+.nc-mascote[data-skin="boltz"] .nc-bola { fill: #FFFFFF; }
+.nc-mascote[data-skin="boltz"] .nc-bola-contorno { fill: none; stroke: var(--nc-boltz-tinta); stroke-width: 4; }
+.nc-mascote[data-skin="boltz"] .nc-gomos path { fill: var(--nc-boltz-gomo); }
+.nc-mascote[data-skin="boltz"] .nc-costuras path { fill: none; stroke: #C7D0DE; stroke-width: 3; stroke-linecap: round; }
+.nc-mascote[data-skin="boltz"] .nc-costura-luz { fill: none; stroke: var(--nc-mascote-cor); stroke-width: 4; stroke-linecap: round; }
+.nc-mascote[data-skin="boltz"] .nc-pernas path:not(.chuteira) { fill: none; stroke: var(--nc-boltz-tinta); stroke-width: 6; stroke-linecap: round; }
+.nc-mascote[data-skin="boltz"] .nc-pernas .chuteira { fill: var(--nc-mascote-cor); stroke: var(--nc-boltz-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-mascote[data-skin="boltz"] .nc-pernas .trava { fill: var(--nc-boltz-tinta); }
+.nc-mascote[data-skin="boltz"] .nc-braco .haste { fill: none; stroke: var(--nc-boltz-tinta); stroke-width: 6; stroke-linecap: round; }
+.nc-mascote[data-skin="boltz"] .nc-braco .luva { fill: #FFFFFF; stroke: var(--nc-boltz-tinta); stroke-width: 3.5; }
+.nc-mascote[data-skin="boltz"] .nc-braco-dir { transform-origin: 158px 98px; }
+.nc-mascote[data-skin="boltz"] .nc-braco-esq { transform-origin: 42px 98px; }
+.nc-mascote[data-skin="boltz"] .nc-giro { transform-origin: 100px 90px; }
+.nc-mascote[data-skin="boltz"] .nc-bochechas circle { fill: #F4A7B9; opacity: 0.5; }
+
+/* rosto: tinta escura sobre a bola branca */
+.nc-mascote[data-skin="boltz"] .nc-olhos,
+.nc-mascote[data-skin="boltz"] .nc-boca { filter: none; }
+.nc-mascote[data-skin="boltz"] .nc-olhos ellipse,
+.nc-mascote[data-skin="boltz"] .nc-olhos .cheio,
+.nc-mascote[data-skin="boltz"] .nc-boca-feliz,
+.nc-mascote[data-skin="boltz"] .nc-boca-pensando circle,
+.nc-mascote[data-skin="boltz"] .nc-boca-falando { fill: var(--nc-boltz-tinta); }
+.nc-mascote[data-skin="boltz"] .nc-olhos .brilho { fill: #FFFFFF; }
+.nc-mascote[data-skin="boltz"] .nc-olhos path:not(.cheio),
+.nc-mascote[data-skin="boltz"] .nc-boca-neutra,
+.nc-mascote[data-skin="boltz"] .nc-boca-fechados,
+.nc-mascote[data-skin="boltz"] .nc-boca-confuso,
+.nc-mascote[data-skin="boltz"] .nc-boca-surpresa,
+.nc-mascote[data-skin="boltz"] .nc-boca-feliz { stroke: var(--nc-boltz-tinta); }
+.nc-mascote[data-skin="boltz"][data-olhos="estrela"] .nc-olhos .cheio { fill: var(--nc-sinal); stroke: var(--nc-boltz-tinta); stroke-width: 2; }
+.nc-mascote[data-skin="boltz"] .nc-interrogacao { fill: var(--nc-mascote-cor); }
+
+/* ---------- movimento próprio do Boltz (completa) ---------- */
+/* repouso: quica de leve, como bola parada no gramado */
+.nc-mascote[data-skin="boltz"][data-intensidade="completa"][data-estado="neutro"] .nc-corpo,
+.nc-mascote[data-skin="boltz"][data-intensidade="completa"][data-estado="falando"] .nc-corpo { animation: nc-quica 2.6s ease-in-out infinite; }
+.nc-mascote[data-skin="boltz"][data-intensidade="completa"][data-estado="neutro"] .nc-sombra { animation: nc-sombra 2.6s ease-in-out infinite; }
+/* tarefa concluída: "embaixadinha" - pulo com meia volta da bola */
+.nc-mascote[data-skin="boltz"][data-intensidade="completa"][data-estado="comemora_p"] .nc-giro { animation: nc-embaixadinha 0.65s ease-out; }
+/* comemorações: costura acende em dourado */
+.nc-mascote[data-skin="boltz"]:not([data-intensidade="desligada"])[data-estado^="comemora"] .nc-costura-luz,
+.nc-mascote[data-skin="boltz"]:not([data-intensidade="desligada"])[data-estado="incentivo"] .nc-costura-luz { animation: nc-costura-brilha 0.8s ease-in-out 2; }
+/* pensando: costura pisca enquanto a IA processa */
+.nc-mascote[data-skin="boltz"]:not([data-intensidade="desligada"])[data-estado="pensando"] .nc-costura-luz { animation: nc-processa 1.1s ease-in-out infinite; }
+
+@keyframes nc-quica {
+  0%, 100% { transform: translateY(0) scale(1.03, 0.97); }
+  45%      { transform: translateY(-7px) scale(0.99, 1.01); }
+  55%      { transform: translateY(-7px) scale(0.99, 1.01); }
+}
+@keyframes nc-embaixadinha { 0% { transform: rotate(0); } 70%, 100% { transform: rotate(360deg); } }  /* volta inteira: o rosto termina de pé */
+@keyframes nc-costura-brilha { 0%, 100% { stroke: var(--nc-mascote-cor); } 45% { stroke: var(--nc-sinal); } }

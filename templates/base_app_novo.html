@@ -19,8 +19,10 @@
   {% if mascote_ativo %}
   <link rel="stylesheet" href="{{ url_for('static', filename='mascote_robo.css') }}">
   {% endif %}
-  {% if tema_ativo == 'cafeteria' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='tema_cafeteria.css') }}">
+  {# [TEMA] cada tema é um CSS isolado (static/tema_<id>.css); o padrão não carrega nada a mais.
+     tema_ativo já vem validado contra o catálogo TEMAS no app.py #}
+  {% if tema_ativo and tema_ativo != 'padrao' %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='tema_' ~ tema_ativo ~ '.css') }}">
   {% endif %}
 </head>
 <body>

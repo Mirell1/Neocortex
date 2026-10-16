@@ -17,7 +17,7 @@
         <div>
           <p
             style="margin:0 0 4px;font-size:12px;font-weight:700;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:1px;">
-            Progresso de hoje</p>
+            {{ 'Placar do dia' if tema_ativo == 'campeonato' else 'Progresso de hoje' }}</p>
           <h2 style="margin:0;font-size:32px;font-weight:800;color:white;letter-spacing:-0.5px;">{{ concluidas }} <span
               style="font-size:18px;font-weight:600;opacity:0.7;">de {{ total }}</span></h2>
         </div>

@@ -88,3 +88,82 @@
 
 /* acessibilidade tem prioridade sobre o tema: a fonte para dislexia vale também nos títulos */
 html[data-tipografia="dislexia"] .app-topbar h2 { font-family: 'Lexend', sans-serif; }
+/* ============================================================
+   TELA INICIAL E CALENDÁRIO TEMÁTICOS (cores para temas_comum.css)
+   ============================================================ */
+[data-tema="campeonato"] {
+  --tema-titulo: var(--camp-titulo);
+  --tema-destaque: var(--camp-destaque);
+  --tema-boas-fundo: linear-gradient(135deg, #FFFFFF 55%, #E6F4EE);
+  --tema-balao: #EEF6F2;
+  --tema-trilho: #E2E8F0;
+  --tema-barra: linear-gradient(90deg, #18A575, #D8B565);
+  --tema-selo-fundo: #D8EFE5;
+  --tema-selo-texto: #0B6B49;
+  --nc-aba-ativa-bg: var(--camp-verde);
+  --nc-hoje-bg: var(--camp-verde);
+  --nc-hoje-tinta: rgba(24, 165, 117, 0.07);
+}
+.dark[data-tema="campeonato"] {
+  --tema-boas-fundo: linear-gradient(135deg, #152033 55%, #12302A);
+  --tema-balao: #1B2B40;
+  --tema-trilho: #2A3A55;
+  --tema-selo-fundo: #12302A;
+  --tema-selo-texto: #7FE3B5;
+}
+[data-tema="campeonato"] .nc-inicio-boas h2,
+[data-tema="campeonato"] .nc-inicio-semana h3 { letter-spacing: 0.3px; }
+
+/* escalação: o gramado fica só aqui dentro, como o pacote do tema pede */
+.nc-escalacao-rolagem { overflow-x: auto; border-radius: 16px; }
+.nc-escalacao {
+  position: relative; min-width: 640px; height: 360px; border-radius: 16px; background-color: #1E7A55;
+  background-image: repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 60px, transparent 60px 120px);
+}
+.nc-escalacao .linha { position: absolute; border: 0 solid rgba(255, 255, 255, 0.75); }
+.nc-escalacao .borda { inset: 14px; border-width: 2.5px; border-radius: 6px; }
+.nc-escalacao .meio { top: 14px; bottom: 14px; left: 50%; border-left-width: 2.5px; }
+.nc-escalacao .circulo { left: 50%; top: 50%; width: 92px; height: 92px; transform: translate(-50%, -50%); border-width: 2.5px; border-radius: 50%; }
+.nc-escalacao .area { top: 30%; width: 13%; height: 40%; border-width: 2.5px; }
+.nc-escalacao .area.esq { left: 14px; border-left-width: 0; }
+.nc-escalacao .area.dir { right: 14px; border-right-width: 0; }
+.nc-camisa {
+  position: absolute; transform: translate(-50%, -50%); width: 98px; padding: 8px 6px; border: 0; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95); display: flex; flex-direction: column; align-items: center; gap: 2px;
+  cursor: pointer; font: inherit; color: #14213D; transition: transform 0.15s, box-shadow 0.15s;
+}
+.nc-camisa:hover { transform: translate(-50%, -54%); }
+.nc-camisa:focus-visible { outline: 3px solid #FFFFFF; outline-offset: 3px; }
+.nc-camisa.is-hoje { box-shadow: 0 0 0 4px #FFFFFF, 0 0 0 7px #D8B565; }
+.nc-camisa svg .tecido { stroke: #14213D; stroke-width: 1.8; stroke-linejoin: round; }
+.nc-camisa.grupo-a svg .tecido { fill: #18A575; }
+.nc-camisa.grupo-b svg .tecido { fill: #3F7FC1; }
+.nc-camisa.grupo-gol svg .tecido { fill: #D8B565; }
+.nc-camisa svg .traco { fill: none; stroke: #FFFFFF; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.nc-camisa svg .anel { fill: none; stroke: #FFFFFF; stroke-width: 2.5; }
+.nc-camisa svg .tracejado { stroke-dasharray: 3 3; }
+.nc-camisa svg .cheio { fill: #FFFFFF; }
+.nc-camisa.grupo-gol svg .traco, .nc-camisa.grupo-gol svg .anel { stroke: #14213D; }
+.nc-camisa.grupo-gol svg .cheio { fill: #14213D; }
+.nc-camisa svg .letra { font: 800 13px sans-serif; fill: #FFFFFF; }
+.nc-camisa.grupo-gol svg .letra { fill: #14213D; }
+.nc-camisa .dia { font-size: 14px; font-weight: 800; line-height: 1.1; }
+.nc-camisa .dia small { font-size: 12px; font-weight: 600; color: #4A5568; }
+.nc-camisa .resumo { font-size: 12px; font-weight: 700; color: #4A5568; }
+.nc-escalacao-legenda {
+  list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 18px;
+  font-size: 13px; font-weight: 700; color: var(--nc-text2);
+}
+.nc-escalacao-legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.nc-escalacao-legenda .cor { width: 14px; height: 14px; border-radius: 4px; }
+.nc-escalacao-legenda .grupo-a { background: #18A575; }
+.nc-escalacao-legenda .grupo-b { background: #3F7FC1; }
+.nc-escalacao-legenda .grupo-gol { background: #D8B565; }
+
+/* rede da semana na VERSÃO SIMPLES do tema (a completa usa a escalação) */
+[data-tema="campeonato"] {
+  --trilha-fundo: radial-gradient(120% 140% at 20% 0%, #12403A 0%, #0F1B33 60%, #0B1220 100%);
+  --trilha-cartao: #13263D; --trilha-cartao-feito: linear-gradient(180deg, #12403A 0%, #13263D 100%); --trilha-cartao-hoje: #1A2F40;
+  --trilha-borda: #2F5C55; --trilha-apagada: #24394F;
+  --trilha-luz: #4ADE9B; --trilha-luz2: #D8B565; --trilha-brilho: rgba(74, 222, 155, 0.5);
+}

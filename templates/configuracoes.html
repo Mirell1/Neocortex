@@ -101,11 +101,64 @@
             <input type="radio" name="tema" value="{{ tid }}" {{ 'checked' if tid == tema_ativo }} {{ '' if t.liberado else 'disabled' }}
                    onchange="this.form.submit()" style="margin-top:3px;">
             <span>
-              <strong style="color:var(--nc-text);">{{ t.nome }}</strong><br>
-              <small style="color:var(--nc-text2);">{{ t.descricao if t.liberado else t.como_liberar }}</small>
+              {# [TEMA] mostra a versão liberada e o que falta para a próxima, sem tom de cobrança #}
+              <strong style="color:var(--nc-text);">{{ t.nome }}</strong>
+              {% if t.area %}<small style="color:var(--nc-text2);font-weight:600;"> · área {{ t.area }}</small>{% endif %}
+              {% if tid != 'padrao' and t.nivel == 1 %}<small style="margin-left:6px;padding:2px 8px;border-radius:999px;background:var(--nc-bg);border:1px solid var(--nc-border);color:var(--nc-text2);font-weight:700;">versão simples</small>{% endif %}
+              {% if tid != 'padrao' and t.nivel == 2 %}<small style="margin-left:6px;padding:2px 8px;border-radius:999px;background:var(--nc-bg);border:1px solid var(--nc-border);color:var(--nc-text2);font-weight:700;">versão completa</small>{% endif %}
+              <br>
+              <small style="color:var(--nc-text2);">
+                {% if not t.liberado %}{{ t.como_liberar }}
+                {% elif tid != 'padrao' and t.nivel == 1 %}Cores do tema liberadas. {{ t.como_completar }}
+                {% else %}{{ t.descricao }}{% endif %}
+              </small>
             </span>
           </label>
           {% endfor %}
+        </fieldset>
+      </form>
+
+      <form method="POST" action="{{ url_for('salvar_interface') }}" style="margin:18px 0 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset style="border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;">
+          <legend class="nc-label">Interface</legend>
+          <label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1.5px solid var(--nc-border);border-radius:12px;cursor:pointer;">
+            <input type="radio" name="interface" value="classica" {{ 'checked' if not interface_imersiva }} onchange="this.form.submit()" style="margin-top:3px;">
+            <span>
+              <strong style="color:var(--nc-text);">Clássica</strong><br>
+              <small style="color:var(--nc-text2);">A tela original do NEOCORTEX: progresso do dia, lista de tarefas e agenda em três visões.</small>
+            </span>
+          </label>
+          <label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1.5px solid var(--nc-border);border-radius:12px;cursor:{{ 'pointer' if interface_imersiva_disponivel else 'default' }};opacity:{{ '1' if interface_imersiva_disponivel else '0.7' }};">
+            <input type="radio" name="interface" value="imersiva" {{ 'checked' if interface_imersiva }} {{ '' if interface_imersiva_disponivel else 'disabled' }}
+                   onchange="this.form.submit()" style="margin-top:3px;">
+            <span>
+              <strong style="color:var(--nc-text);">Imersiva</strong>
+              {% if not interface_imersiva_disponivel %}<small style="color:var(--nc-text2);font-weight:600;"> · bloqueada</small>{% endif %}<br>
+              <small style="color:var(--nc-text2);">
+                {% if interface_imersiva_disponivel %}A semana desenhada como rede (ou como o tema escolhido), com o mascote no cartão de boas-vindas.
+                {% else %}Com {{ pontos_interface }} pontos (nível "Pegando o ritmo") você libera a interface imersiva. Faltam {{ [pontos_interface - mascote_pontos, 0]|max }}.{% endif %}
+              </small>
+            </span>
+          </label>
+        </fieldset>
+      </form>
+
+      <style>.nc-cor-opcao:focus-within { outline: 2px solid var(--nc-text); outline-offset: 2px; }</style>
+      <form method="POST" action="{{ url_for('salvar_cor_mascote') }}" style="margin:18px 0 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset style="border:0;margin:0;padding:0;">
+          <legend class="nc-label">Cor do {{ mascote_nome }}</legend>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;">
+            {% for cor in cores_mascote %}
+            <label class="nc-cor-opcao" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid {{ 'var(--nc-text)' if cor.id == mascote_cor_id else 'var(--nc-border)' }};border-radius:999px;cursor:pointer;font-size:13px;font-weight:600;color:var(--nc-text);">
+              <input type="radio" name="cor" value="{{ cor.id }}" {{ 'checked' if cor.id == mascote_cor_id }}
+                     onchange="this.form.submit()" style="position:absolute;opacity:0;width:0;height:0;">
+              <span aria-hidden="true" style="width:16px;height:16px;border-radius:50%;background:{{ cor.cor if cor.cor else 'conic-gradient(#C98A4B 0 33%, #18A575 0 66%, #8C7BFF 0)' }};border:1px solid rgba(0,0,0,0.2);"></span>
+              {{ cor.nome }}
+            </label>
+            {% endfor %}
+          </div>
         </fieldset>
       </form>
       {% endif %}

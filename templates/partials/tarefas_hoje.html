@@ -1,0 +1,39 @@
+{# Lista "Tarefas de hoje" da tela inicial (a mesma em todos os temas).
+   Recebe: tarefas, hoje_formatado, titulo_tarefas, selo_concluida ('' = usa o rótulo normal de status). #}
+<div class="nc-card" style="overflow:hidden;">
+  <div
+    style="padding:20px 24px;border-bottom:1px solid var(--nc-border);display:flex;justify-content:space-between;align-items:center;gap:12px;">
+    <h3 class="{{ 'nc-titulo-tema' if selo_concluida else '' }}" style="margin:0;font-size:16px;font-weight:800;color:var(--nc-text);letter-spacing:-0.2px;">{{ titulo_tarefas }}</h3>
+    <span style="font-size:13px;font-weight:600;color:var(--nc-text2);">{{ hoje_formatado }}</span>
+  </div>
+  <div id="listaTarefasHoje">
+    {% for t in tarefas %}
+    {% set label, cor = status_visual(t) %}
+    <div class="linha-tarefa" data-titulo="{{ t.titulo|lower }}"
+      style="display:flex;align-items:center;gap:16px;padding:16px 24px;{{ 'border-bottom:1px solid var(--nc-border);' if not loop.last else '' }}">
+      <form method="POST"
+        action="{{ url_for('desfazer_tarefa', id_tarefa=t.id_tarefa) if t.status == 'concluida' else url_for('concluir_tarefa', id_tarefa=t.id_tarefa) }}"
+        style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" aria-label="{{ 'Desfazer conclusão de ' if t.status == 'concluida' else 'Concluir ' }}{{ t.titulo }}"
+          style="width:20px;height:20px;border-radius:6px;border:2px solid {{ '#22C55E' if t.status == 'concluida' else 'var(--nc-border)' }};background:{{ '#22C55E' if t.status == 'concluida' else 'transparent' }};display:flex;align-items:center;justify-content:center;flex-shrink:0;color:white;font-size:11px;font-weight:800;cursor:pointer;">{{
+          '✓' if t.status == 'concluida' else '' }}</button>
+      </form>
+      <div style="flex:1;min-width:0;">
+        <p
+          style="margin:0 0 2px;font-size:14px;font-weight:600;color:var(--nc-text);{{ 'text-decoration:line-through;opacity:0.5;' if t.status == 'concluida' else '' }}">
+          {{ t.titulo }}</p>
+        <p style="margin:0;font-size:12px;font-weight:500;color:var(--nc-text2);">{{ t.categoria }}</p>
+      </div>
+      {% if selo_concluida and t.status == 'concluida' %}
+      <span class="nc-selo" title="concluída">{{ selo_concluida }}</span>
+      {% else %}
+      <span class="badge" style="background:{{ cor }}18;color:{{ cor }};">{{ label }}</span>
+      {% endif %}
+    </div>
+    {% else %}
+    <p style="padding:24px;text-align:center;font-size:13px;font-weight:600;color:var(--nc-text2);">Nenhuma tarefa pra
+      hoje.</p>
+    {% endfor %}
+  </div>
+</div>

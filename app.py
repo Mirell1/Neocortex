@@ -78,15 +78,34 @@ COR_ATRASADA = "#C98A82"  # terracota suave — mesmo princípio de "sem alarme"
 
 # [TEMA] catálogo de temas. O padrão é sempre liberado; os outros são recompensa.
 TEMAS = {
-    "padrao": {"nome": "Padrão", "mascote": "robo",
+    "padrao": {"nome": "Padrão", "mascote": "robo", "mascote_nome": "Robô",
                "descricao": "O visual original do NEOCORTEX.", "como_liberar": ""},
-    "cafeteria": {"nome": "Cafeteria", "mascote": "grao",
+    # [TEMA] cada tema tem 2 versões: 1 = simples (cores e tipografia), 2 = completa (mascote,
+    # semana temática, vocabulário e falas). Cada área do sistema libera o seu tema.
+    "cafeteria": {"nome": "Cafeteria", "mascote": "grao", "mascote_nome": "Grão", "area": "Objetivos",
                   "descricao": "Tons de café e o Grão como mascote.",
-                  "como_liberar": "Crie um objetivo e divida em fragmentos para liberar."},
-    "campeonato": {"nome": "Campeonato", "mascote": "boltz",
+                  "como_liberar": "Crie seu primeiro objetivo para liberar.",
+                  "como_completar": "Divida um objetivo em fragmentos para liberar a versão completa, com o Grão."},
+    "campeonato": {"nome": "Campeonato", "mascote": "boltz", "mascote_nome": "Boltz", "area": "Tarefas",
                    "descricao": "Futebol: verde e dourado, com o Boltz como mascote.",
-                   "como_liberar": "Remarque uma tarefa atrasada em vez de deixá-la pra trás para liberar."},
+                   "como_liberar": "Conclua todas as tarefas de um dia para liberar.",
+                   "como_completar": "Remarque uma tarefa atrasada em vez de deixá-la pra trás para liberar a versão completa, com o Boltz."},
+    "papelaria": {"nome": "Papelaria", "mascote": "rabisco", "mascote_nome": "Rabisco", "area": "Rotina Fixa",
+                  "descricao": "Papel, canetas e marca-texto, com o Rabisco como mascote.",
+                  "como_liberar": "Monte uma rotina fixa com blocos em pelo menos 3 dias da semana para liberar.",
+                  "como_completar": "Mantenha sua rotina montada por 7 dias para liberar a versão completa, com o Rabisco."},
 }
+
+# [PERSONALIZAR] paleta de cores do mascote. "padrao" não muda nada: cada mascote mantém a cor dele.
+# A cor pinta os detalhes que brilham (luzes do robô, faixa do Grão, costuras e chuteiras do Boltz).
+CORES_MASCOTE = [
+    {"id": "padrao",  "nome": "Original", "cor": "",        "brilho": ""},
+    {"id": "azul",    "nome": "Azul",     "cor": "#3B82F6", "brilho": "#DBEAFE"},
+    {"id": "verde",   "nome": "Verde",    "cor": "#18A575", "brilho": "#D8EFE5"},
+    {"id": "rosa",    "nome": "Rosa",     "cor": "#E0629A", "brilho": "#FBD5E5"},
+    {"id": "laranja", "nome": "Laranja",  "cor": "#E8892B", "brilho": "#FDE6CC"},
+    {"id": "roxo",    "nome": "Roxo",     "cor": "#8C7BFF", "brilho": "#D3CCFF"},
+]
 
 # [TEMA] só para gravar a apresentação: libera todos os temas e acessórios. Nunca em produção.
 MODO_DEMO = os.getenv("NEOCORTEX_DEMO", "0") == "1"
@@ -149,32 +168,134 @@ def _mascote_evento(tipo, **dados):
     session["mascote_eventos"] = fila[-3:]   # nunca acumula mais que 3
 
 
+NIVEL_SIMPLES, NIVEL_COMPLETO = 1, 2
+
+# [INTERFACE] A interface CLÁSSICA (a original do NEOCORTEX) é a base de todo mundo. A IMERSIVA (semana desenhada,
+# mascote no cartão de boas-vindas, vocabulário do tema) é um prêmio adicional: libera com 100 pontos
+# (nível "Pegando o ritmo"), nunca volta a bloquear, liga sozinha e a pessoa pode voltar à clássica em Configurações.
+PONTOS_INTERFACE_IMERSIVA = 100
+
+
+def _nivel_tema(id_usuario, tid):
+    """[TEMA] 0 = bloqueado, 1 = versão simples, 2 = versão completa.
+    O padrão é sempre completo. Compatibilidade: quem já tinha o tema liberado pelas regras
+    antigas (que hoje são as da versão completa) fica com o nível 2."""
+    if tid == "padrao" or MODO_DEMO:
+        return NIVEL_COMPLETO
+    nivel = db.buscar_preferencia(id_usuario, f"tema_{tid}_nivel")
+    if nivel in ("1", "2"):
+        return int(nivel)
+    if db.buscar_preferencia(id_usuario, f"tema_{tid}_liberado") == "true":
+        return NIVEL_COMPLETO
+    return 0
+
+
 def _temas_liberados(id_usuario):
-    """[TEMA] Conjunto de temas que a pessoa já pode usar."""
-    liberados = {"padrao"}
-    for tid in TEMAS:
-        if tid != "padrao" and (MODO_DEMO or db.buscar_preferencia(id_usuario, f"tema_{tid}_liberado") == "true"):
-            liberados.add(tid)
-    return liberados
+    """[TEMA] {tema: nível} só com os temas que a pessoa já pode usar."""
+    niveis = {tid: _nivel_tema(id_usuario, tid) for tid in TEMAS}
+    return {tid: n for tid, n in niveis.items() if n >= NIVEL_SIMPLES}
 
 
-def _liberar_tema(id_usuario, tid):
-    """[TEMA] Libera um tema uma única vez e avisa pelo mascote. Nunca volta a bloquear."""
-    if not GAMIFICACAO_ATIVA or db.buscar_preferencia(id_usuario, f"tema_{tid}_liberado") == "true":
+def _liberar_tema(id_usuario, tid, nivel=NIVEL_COMPLETO):
+    """[TEMA] Sobe o tema para o nível pedido (nunca desce) e avisa pelo mascote.
+    Liberar a versão completa já inclui a simples."""
+    if not GAMIFICACAO_ATIVA or _nivel_tema(id_usuario, tid) >= nivel:
         return
-    db.salvar_preferencia(id_usuario, f"tema_{tid}_liberado", "true")
-    _mascote_evento("conquista", item=f"Tema {TEMAS[tid]['nome']}")
+    db.salvar_preferencia(id_usuario, f"tema_{tid}_nivel", str(nivel))
+    if nivel >= NIVEL_COMPLETO:   # a marca antiga "_liberado" sempre significou a versão completa: não grava na simples
+        db.salvar_preferencia(id_usuario, f"tema_{tid}_liberado", "true")
+    nome = TEMAS[tid]["nome"]
+    item = f"Tema {nome}" if nivel == NIVEL_SIMPLES else f"Tema {nome} completo, com o {TEMAS[tid]['mascote_nome']}"
+    _mascote_evento("conquista", item=item)
+
+
+def _tema_imersivo(id_usuario, tema):
+    """[TEMA] O tema ativo está na versão completa? (o padrão sempre está)"""
+    return _nivel_tema(id_usuario, tema) >= NIVEL_COMPLETO
+
+
+def _skin_atual(id_usuario):
+    """[TEMA] Mascote em uso: o do tema só na versão completa; na simples, continua o robô."""
+    tema = _tema_atual(id_usuario)
+    return TEMAS[tema]["mascote"] if _tema_imersivo(id_usuario, tema) else "robo"
+
+
+def _tema_atual(id_usuario):
+    """[TEMA] Tema escolhido, já validado: tema bloqueado ou inválido volta ao padrão."""
+    tema = db.buscar_preferencia(id_usuario, "tema_visual") or "padrao"
+    return tema if tema in _temas_liberados(id_usuario) else "padrao"
+
+
+def _chave_mascote(base, skin):
+    """[PERSONALIZAR] Cada mascote guarda a sua personalização. O robô mantém a chave antiga
+    (quem já tinha acessório equipado não perde nada); os outros ganham um sufixo."""
+    return base if skin == "robo" else f"{base}_{skin}"
+
+
+def _cor_do_mascote(id_usuario, skin):
+    cor_id = db.buscar_preferencia(id_usuario, _chave_mascote("mascote_cor", skin)) or "padrao"
+    return next((c for c in CORES_MASCOTE if c["id"] == cor_id), CORES_MASCOTE[0])
+
+
+def _interface_imersiva_liberada(id_usuario, pontos):
+    """[INTERFACE] A interface imersiva já foi liberada? Libera uma vez (100 pontos) e nunca volta a bloquear,
+    mesmo que os pontos caiam depois (por exemplo, ao desfazer uma tarefa)."""
+    if not GAMIFICACAO_ATIVA:
+        return False
+    if MODO_DEMO or db.buscar_preferencia(id_usuario, "interface_imersiva_liberada") == "true":
+        return True
+    if pontos >= PONTOS_INTERFACE_IMERSIVA:
+        db.salvar_preferencia(id_usuario, "interface_imersiva_liberada", "true")
+        _mascote_evento("conquista", item="Interface imersiva, com a rede da semana")
+        return True
+    return False
+
+
+def _interface_imersiva_disponivel(id_usuario, pontos=None):
+    """[INTERFACE] Disponível com 100 pontos OU porque o tema ativo é um tema de RECOMPENSA na versão completa
+    (a tela temática daquele tema faz parte da recompensa dele). O padrão nasce completo para todos,
+    então ele NÃO conta aqui: para o padrão, a imersiva só vem pelos pontos."""
+    pontos = db.calcular_pontos_mascote(id_usuario) if pontos is None else pontos
+    tema = _tema_atual(id_usuario)
+    return _interface_imersiva_liberada(id_usuario, pontos) or (tema != "padrao" and _tema_imersivo(id_usuario, tema))
 
 
 def _verificar_desbloqueio_cafeteria(id_usuario):
-    """[TEMA] Libera a Cafeteria quando existe um objetivo com pelo menos um fragmento.
-    Grava a liberação uma vez; depois disso o tema nunca volta a ser bloqueado."""
-    if not GAMIFICACAO_ATIVA or db.buscar_preferencia(id_usuario, "tema_cafeteria_liberado") == "true":
+    """[TEMA] Cafeteria (área Objetivos): versão simples com o primeiro objetivo;
+    versão completa quando algum objetivo tem pelo menos um fragmento."""
+    if not GAMIFICACAO_ATIVA or _nivel_tema(id_usuario, "cafeteria") >= NIVEL_COMPLETO:
         return
-    for objetivo in db.listar_objetivos(id_usuario):
-        if db.listar_fragmentos_objetivo(objetivo["id_objetivo"], id_usuario):
-            _liberar_tema(id_usuario, "cafeteria")
+    objetivos = db.listar_objetivos(id_usuario)
+    if any(db.listar_fragmentos_objetivo(o["id_objetivo"], id_usuario) for o in objetivos):
+        _liberar_tema(id_usuario, "cafeteria", NIVEL_COMPLETO)
+    elif objetivos:
+        _liberar_tema(id_usuario, "cafeteria", NIVEL_SIMPLES)
+
+
+DIAS_ROTINA_PARA_PAPELARIA = 3      # versão simples: rotina cobrindo 3 dias da semana
+DIAS_ROTINA_MONTADA_COMPLETA = 7    # versão completa: rotina montada há 7 dias (o tempo faz o trabalho)
+
+
+def _verificar_desbloqueio_papelaria(id_usuario):
+    """[TEMA] Papelaria (área Rotina Fixa). A rotina não tem "concluir", ela se consolida com o tempo:
+    - simples: rotina com blocos em pelo menos 3 dias diferentes (marco de planejamento);
+    - completa: essa rotina montada há 7 dias. Não exige entrar no app todo dia e nunca zera."""
+    if not GAMIFICACAO_ATIVA or _nivel_tema(id_usuario, "papelaria") >= NIVEL_COMPLETO:
+        return
+    montada_em = db.buscar_preferencia(id_usuario, "rotina_montada_em")
+    if not montada_em:
+        dias = {r["dia_semana"] for r in db.listar_rotina(id_usuario)}
+        if len(dias) < DIAS_ROTINA_PARA_PAPELARIA:
             return
+        montada_em = datetime.now().date().isoformat()
+        db.salvar_preferencia(id_usuario, "rotina_montada_em", montada_em)
+        _liberar_tema(id_usuario, "papelaria", NIVEL_SIMPLES)
+    try:
+        dias_montada = (datetime.now().date() - date.fromisoformat(montada_em)).days
+    except ValueError:
+        return
+    if dias_montada >= DIAS_ROTINA_MONTADA_COMPLETA:
+        _liberar_tema(id_usuario, "papelaria", NIVEL_COMPLETO)
 
 
 # ============================================================
@@ -573,6 +694,7 @@ def concluir_tarefa(id_tarefa):
         era_de_hoje = any(t["id_tarefa"] == id_tarefa for t in hoje)
         if era_de_hoje and all(t["status"] == "concluida" for t in hoje):
             _mascote_evento("dia_concluido")
+            _liberar_tema(usuario_logado(), "campeonato", NIVEL_SIMPLES)   # [TEMA] versão simples
         else:
             _mascote_evento("tarefa_concluida")
     return redirect(request.referrer or url_for("tarefas"))
@@ -668,6 +790,7 @@ def adicionar_rotina_rota():
         servicos.configurar_rotina(usuario_logado(), descricao, hora_inicio, hora_fim, dias_semana)
     except ValueError as erro:
         return _render_rotina(erro=str(erro))
+    _verificar_desbloqueio_papelaria(usuario_logado())   # [TEMA]
     return redirect(url_for("rotina"))
 
 
@@ -697,11 +820,28 @@ def dashboard():
     concluidas = len([t for t in tarefas_hoje if t["status"] == "concluida"])
     pct = round((concluidas / total) * 100) if total else 0
 
+    # [TEMA] resumo dos 7 dias (segunda a domingo) para a prateleira / escalação da tela inicial.
+    # Só conta concluídas de planejadas: o visual nunca desenha tarefa por tarefa.
+    segunda = datetime.combine(hoje - timedelta(days=hoje.weekday()), datetime.min.time())
+    semana_dias = [{"data": (segunda + timedelta(days=i)).date().isoformat(), "total": 0, "concluidas": 0} for i in range(7)]
+    por_data = {d["data"]: d for d in semana_dias}
+    for t in db.listar_tarefas(usuario_logado(), data_inicio=segunda, inicio_antes=segunda + timedelta(days=7)):
+        dia = por_data.get(t["data_inicio"].date().isoformat())
+        if dia and t["status"] != "cancelada":
+            dia["total"] += 1
+            dia["concluidas"] += t["status"] == "concluida"
+
+    hora = datetime.now().hour
+    saudacao = "Bom dia" if 5 <= hora < 12 else ("Boa tarde" if hora < 18 else "Boa noite")
+
     return render_template(
         "dashboard.html",
         tarefas=tarefas_hoje,
         total=total, concluidas=concluidas, pct=pct,
         hoje_formatado=hoje_formatado,
+        semana_dias=semana_dias,                      # [TEMA]
+        saudacao=saudacao,                            # [TEMA]
+        primeiro_nome=(session.get("nome") or "").split(" ")[0],
         **_pagina("dashboard", f"Olá, {session.get('nome', '?')} 👋"),
     )
 
@@ -733,6 +873,7 @@ def criar_objetivo_rota():
     if titulo:
         db.criar_objetivo(usuario_logado(), titulo, prazo=prazo)
         _mascote_evento("objetivo_criado", objetivo=titulo)   # [MASCOTE]
+        _verificar_desbloqueio_cafeteria(usuario_logado())    # [TEMA] versão simples
     return redirect(url_for("objetivos"))
 
 
@@ -1037,24 +1178,56 @@ def enviar_mensagem():
 # ==============================================================
 # MASCOTE, LOJA, JORNADA E TEMAS
 # ==============================================================
-ACESSORIOS_MASCOTE = [
-    {"id": "oculos", "nome": "Óculos", "pontos_min": 100},
-    {"id": "gorro", "nome": "Gorro", "pontos_min": 300},
-    {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
-]
+# [ACESSÓRIOS] Cada mascote tem os seus. Um item de cada vez. Tudo libera até 600 pontos ("Dupla afiada").
+# Para cada "id" precisa existir o desenho (grupo .nc-acessorio-<id> no SVG do mascote, em mascote_robo.js)
+# e a regra de CSS que o mostra (mascote_robo.css). O verificar_pacote.py confere isso.
+ACESSORIOS_POR_MASCOTE = {
+    "robo": [
+        {"id": "oculos", "nome": "Óculos", "pontos_min": 100},
+        {"id": "gorro", "nome": "Gorro", "pontos_min": 200},
+        {"id": "oculos3d", "nome": "Óculos 3D de cinema", "pontos_min": 300},
+        {"id": "protetor", "nome": "Protetor de orelha térmico", "pontos_min": 450},   # com gorro em outra cor
+        {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
+    ],
+    "grao": [
+        {"id": "gorro", "nome": "Gorro", "pontos_min": 100},
+        {"id": "anjo", "nome": "Asas e auréola", "pontos_min": 250},
+        {"id": "jaqueta", "nome": "Jaqueta com capuz felpudo", "pontos_min": 400},
+        {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
+    ],
+    "boltz": [
+        {"id": "gorro", "nome": "Gorro", "pontos_min": 100},
+        {"id": "chuteira", "nome": "Chuteira de ouro", "pontos_min": 250},
+        {"id": "uniforme", "nome": "Uniforme do time NEOCORTEX", "pontos_min": 400},
+        {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
+    ],
+    "rabisco": [
+        {"id": "gorro", "nome": "Gorro", "pontos_min": 100},
+        {"id": "capacete", "nome": "Capacete de pedreiro", "pontos_min": 200},
+        {"id": "prancheta", "nome": "Prancheta", "pontos_min": 300},
+        {"id": "caminha", "nome": "Caminha de gato", "pontos_min": 450},   # em dia livre, o gato dorme nela
+        {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
+    ],
+}
+ACESSORIOS_MASCOTE = ACESSORIOS_POR_MASCOTE["robo"]   # nome antigo: o catálogo do robô
 
 
-def acessorios_desbloqueados(pontos):
+def acessorios_do_mascote(skin):
+    return ACESSORIOS_POR_MASCOTE.get(skin, ACESSORIOS_POR_MASCOTE["robo"])
+
+
+def acessorios_desbloqueados(pontos, skin="robo"):
+    catalogo = acessorios_do_mascote(skin)
     if MODO_DEMO:   # [TEMA] gravação da apresentação: todos liberados
-        return {a["id"] for a in ACESSORIOS_MASCOTE}
-    return {a["id"] for a in ACESSORIOS_MASCOTE if pontos >= a["pontos_min"]}
+        return {a["id"] for a in catalogo}
+    return {a["id"] for a in catalogo if pontos >= a["pontos_min"]}
 
 
 NIVEIS_MASCOTE = [
     {"nivel": 1, "pontos_min": 0,   "nome": "Começando junto",     "frases_extra": False, "acessorio": None,       "animado": False},
-    {"nivel": 2, "pontos_min": 100, "nome": "Pegando o ritmo",     "frases_extra": True,  "acessorio": "oculos",   "animado": False},
-    {"nivel": 3, "pontos_min": 300, "nome": "Parceria de verdade", "frases_extra": True,  "acessorio": "gorro",    "animado": True},
-    {"nivel": 4, "pontos_min": 600, "nome": "Dupla afiada",        "frases_extra": True,  "acessorio": "cachecol", "animado": True},
+    {"nivel": 2, "pontos_min": 100, "nome": "Pegando o ritmo",     "frases_extra": True,  "acessorio": "novos acessórios", "animado": False},
+    {"nivel": 3, "pontos_min": 300, "nome": "Parceria de verdade", "frases_extra": True,  "acessorio": "novos acessórios", "animado": True},
+    {"nivel": 4, "pontos_min": 600, "nome": "Dupla afiada",        "frases_extra": True,  "acessorio": "novos acessórios", "animado": True},
 ]
 
 
@@ -1070,7 +1243,8 @@ def nivel_mascote(pontos):
 
 @app.context_processor
 def injetar_mascote():
-    """[MASCOTE] [TEMA] Pontos, acessório, tema e eventos, num lugar só (um único pop dos eventos)."""
+    """[MASCOTE] [TEMA] [PERSONALIZAR] Pontos, tema, e a personalização do mascote ATUAL,
+    num lugar só (um único pop dos eventos)."""
     if not GAMIFICACAO_ATIVA or not usuario_logado():
         return {"mascote_ativo": False, "tema_ativo": "padrao", "mascote_skin": "robo"}
 
@@ -1084,15 +1258,26 @@ def injetar_mascote():
     else:
         progresso_pct = 100
 
-    equipado = db.buscar_preferencia(id_usuario, "mascote_acessorio_equipado") or "nenhum"
-    if equipado not in acessorios_desbloqueados(pontos):
-        equipado = "nenhum"
-
+    _verificar_desbloqueio_papelaria(id_usuario)   # [TEMA] a versão completa chega com o tempo, sem ação
     intensidade = db.buscar_preferencia(id_usuario, "mascote_intensidade") or ""
-    liberados = _temas_liberados(id_usuario)
+    liberados = _temas_liberados(id_usuario)       # {tema: nível}
     tema = db.buscar_preferencia(id_usuario, "tema_visual") or "padrao"
     if tema not in liberados:
         tema = "padrao"
+    imersivo = liberados[tema] >= NIVEL_COMPLETO
+    skin = TEMAS[tema]["mascote"] if imersivo else "robo"
+
+    # [INTERFACE] clássica por padrão; imersiva liberada por pontos ou pelo tema completo. Liga sozinha e só volta
+    # à clássica se a pessoa escolher (preferência "interface_modo"). A liberação roda antes de consumir os eventos.
+    liberada = _interface_imersiva_liberada(id_usuario, pontos)
+    disponivel = liberada or (imersivo and tema != "padrao")   # o padrão nasce completo: só os pontos o liberam
+    modo = (db.buscar_preferencia(id_usuario, "interface_modo") or "") if disponivel else ""
+    usa_imersiva = disponivel and modo != "classica"
+
+    equipado = db.buscar_preferencia(id_usuario, _chave_mascote("mascote_acessorio_equipado", skin)) or "nenhum"
+    if equipado not in acessorios_desbloqueados(pontos, skin):
+        equipado = "nenhum"
+    cor = _cor_do_mascote(id_usuario, skin)
 
     return {
         "mascote_ativo": True,
@@ -1104,8 +1289,21 @@ def injetar_mascote():
         "mascote_progresso_pct": progresso_pct,
         "mascote_acessorio": equipado,
         "tema_ativo": tema,
-        "mascote_skin": TEMAS[tema]["mascote"],
-        "temas": {tid: {**info, "liberado": tid in liberados} for tid, info in TEMAS.items()},
+        "mascote_skin": skin,
+        "mascote_nome": TEMAS[tema]["mascote_nome"] if imersivo else TEMAS["padrao"]["mascote_nome"],
+        "tema_imersivo": imersivo,
+        # o que a tela inicial e a agenda desenham: na versão simples, a rede do padrão nas cores do tema
+        # vazio = interface clássica (tela original); com valor = o que a tela inicial e a agenda desenham
+        "tema_semana": (tema if imersivo else "padrao") if usa_imersiva else "",
+        "interface_imersiva": usa_imersiva,
+        "interface_imersiva_disponivel": disponivel,
+        "pontos_interface": PONTOS_INTERFACE_IMERSIVA,
+        "mascote_cor": cor["cor"],
+        "mascote_brilho": cor["brilho"],
+        "mascote_cor_id": cor["id"],
+        "cores_mascote": CORES_MASCOTE,
+        "temas": {tid: {**info, "liberado": tid in liberados, "nivel": liberados.get(tid, 0)}
+                  for tid, info in TEMAS.items()},
     }
 
 
@@ -1128,15 +1326,39 @@ def salvar_tema():
     return redirect(url_for("configuracoes"))
 
 
+@app.route("/configuracoes/interface", methods=["POST"])
+@login_obrigatorio
+def salvar_interface():
+    """[INTERFACE] Clássica ou imersiva. A clássica é sempre permitida; a imersiva só depois de liberada."""
+    escolha = request.form.get("interface", "")
+    if escolha == "classica" or (escolha == "imersiva" and _interface_imersiva_disponivel(usuario_logado())):
+        db.salvar_preferencia(usuario_logado(), "interface_modo", escolha)
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/mascote-cor", methods=["POST"])
+@login_obrigatorio
+def salvar_cor_mascote():
+    """[PERSONALIZAR] Cor do mascote ATUAL (cada mascote guarda a sua). Só aceita cores da paleta."""
+    escolha = request.form.get("cor", "")
+    if escolha in {c["id"] for c in CORES_MASCOTE}:
+        skin = _skin_atual(usuario_logado())
+        db.salvar_preferencia(usuario_logado(), _chave_mascote("mascote_cor", skin), escolha)
+    return redirect(url_for("configuracoes"))
+
+
 @app.route("/mascote/loja")
 @login_obrigatorio
 def mascote_loja():
     pontos = db.calcular_pontos_mascote(usuario_logado())
-    desbloqueados = acessorios_desbloqueados(pontos)
-    equipado = db.buscar_preferencia(usuario_logado(), "mascote_acessorio_equipado") or "nenhum"
+    skin = _skin_atual(usuario_logado())
+    desbloqueados = acessorios_desbloqueados(pontos, skin)
+    equipado = db.buscar_preferencia(usuario_logado(), _chave_mascote("mascote_acessorio_equipado", skin)) or "nenhum"
+    if equipado not in desbloqueados:   # ex.: acessório que não existe mais no catálogo deste mascote
+        equipado = "nenhum"
     return render_template(
         "mascote_loja.html",
-        acessorios=ACESSORIOS_MASCOTE,
+        acessorios=acessorios_do_mascote(skin),
         desbloqueados=desbloqueados,
         equipado_atual=equipado,
         **_pagina("mascote_loja", "Loja"),
@@ -1148,9 +1370,13 @@ def mascote_loja():
 def equipar_acessorio():
     escolha = request.form.get("acessorio", "nenhum")
     pontos = db.calcular_pontos_mascote(usuario_logado())
-    if escolha != "nenhum" and escolha not in acessorios_desbloqueados(pontos):
-        abort(403)  # tentou equipar algo que não desbloqueou
-    db.salvar_preferencia(usuario_logado(), "mascote_acessorio_equipado", escolha)
+    skin = _skin_atual(usuario_logado())   # [PERSONALIZAR] equipa no mascote atual
+    if escolha != "nenhum" and escolha not in acessorios_desbloqueados(pontos, skin):
+        abort(403)  # tentou equipar algo que não desbloqueou (ou que é de outro mascote)
+    db.salvar_preferencia(usuario_logado(), _chave_mascote("mascote_acessorio_equipado", skin), escolha)
+    if escolha != "nenhum":   # [ACESSÓRIOS] o mascote comenta o item novo
+        item = next(a["nome"] for a in acessorios_do_mascote(skin) if a["id"] == escolha)
+        _mascote_evento("acessorio", id=escolha, item=item)
     return redirect(url_for("mascote_loja"))
 
 
@@ -1185,6 +1411,7 @@ def jornada():
 @login_obrigatorio
 def configuracoes():
     _verificar_desbloqueio_cafeteria(usuario_logado())   # [TEMA] cobre quem já tinha fragmentos
+    _verificar_desbloqueio_papelaria(usuario_logado())   # [TEMA] cobre quem já tinha rotina montada
     notificacoes_ativas = db.buscar_preferencia(usuario_logado(), "notificacoes_ativas") == "true"
     return render_template(
         "configuracoes.html",

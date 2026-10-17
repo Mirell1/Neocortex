@@ -17,8 +17,17 @@
     </div>
     <div id="weekView" class="hidden"></div>
     <div id="dayView" class="hidden"></div>
+    {# [TEMA] prateleira (Cafeteria) / escalação (Campeonato): mesmo componente da tela inicial #}
+    <div id="temaView" class="hidden nc-cal-tema">
+      <p class="ajuda">Cada {{ {'cafeteria': 'xícara', 'campeonato': 'camisa', 'papelaria': 'folha'}.get(tema_semana, 'cartão') }} é um dia da semana. Toque num dia para ver os detalhes.</p>
+      <div id="temaSemana"></div>
+    </div>
   </div>
 </div>
+
+{% if mascote_ativo and tema_semana %}
+<script src="{{ url_for('static', filename='semana_tematica.js') }}"></script>
+{% endif %}
 
 <script>
   /* ---------- dados reais, buscados sob demanda por intervalo ---------- */
@@ -30,20 +39,25 @@
   const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const MONTH_SHORT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
-  const TABS = ['Hoje', 'Semana', 'Mês'];
-  const PAGE_TITLES = { 'Hoje': 'Agenda do dia', 'Semana': 'Agenda semanal', 'Mês': 'Agenda mensal' };
+  /* [TEMA] a aba temática só aparece quando um tema de recompensa está ativo */
+  const TEMA = {{ (tema_semana or '')|tojson }};   // vazio = interface clássica: Agenda original, sem aba temática
+  const ABA_TEMA = { padrao: 'Rede', cafeteria: 'Prateleira', campeonato: 'Escalação', papelaria: 'Planner' }[TEMA] || null;
+  const TABS = ['Hoje', 'Semana', 'Mês'].concat(ABA_TEMA && window.NCSemana ? [ABA_TEMA] : []);
+  const PAGE_TITLES = { 'Hoje': 'Agenda do dia', 'Semana': 'Agenda semanal', 'Mês': 'Agenda mensal',
+                        'Rede': 'Rede da semana', 'Planner': 'Planner da semana', 'Prateleira': 'Prateleira da semana', 'Escalação': 'Escalação da semana' };
 
   const GRID_START = 6;
   const GRID_END = 24;
   const ROW_H = 56;
   document.documentElement.style.setProperty('--cal-row', ROW_H + 'px');
 
-  let activeTab = 'Mês';
+  let activeTab = TABS.indexOf(ABA_TEMA) >= 0 ? ABA_TEMA : 'Mês';   // no tema, a visão temática abre primeiro
   let cursor = new Date();
 
   const monthView = document.getElementById('monthView');
   const weekView = document.getElementById('weekView');
   const dayView = document.getElementById('dayView');
+  const temaView = document.getElementById('temaView');
 
   /* ---------- utilitários de data ---------- */
   function sameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
@@ -71,6 +85,7 @@
   }
 
   function rangeParaView() {
+    if (activeTab === ABA_TEMA) { const s = NCSemana.segundaDa(cursor); return [s, addDays(s, 6)]; }   // segunda a domingo
     if (activeTab === 'Mês') return mesGridRange(cursor);
     if (activeTab === 'Semana') { const s = startOfWeek(cursor); return [s, addDays(s, 6)]; }
     return [cursor, cursor];
@@ -173,7 +188,7 @@
   function renderTabs() {
     document.getElementById('calTabs').innerHTML = TABS.map(function (tab) {
       const active = activeTab === tab;
-      return '<button data-tab="' + tab + '" style="padding:7px 20px;border-radius:7px;border:none;background:' + (active ? 'linear-gradient(135deg, #2563EB, #7C3AED)' : 'transparent') + ';color:' + (active ? 'white' : 'var(--nc-text2)') + ';font-size:13px;font-weight:700;cursor:pointer;">' + tab + '</button>';
+      return '<button data-tab="' + tab + '" style="padding:7px 20px;border-radius:7px;border:none;background:' + (active ? 'var(--nc-aba-ativa-bg, linear-gradient(135deg, #2563EB, #7C3AED))' : 'transparent') + ';color:' + (active ? 'white' : 'var(--nc-text2)') + ';font-size:13px;font-weight:700;cursor:pointer;">' + tab + '</button>';
     }).join('');
     document.querySelectorAll('#calTabs [data-tab]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -188,8 +203,8 @@
     let text;
     if (activeTab === 'Mês') {
       text = MONTH_NAMES[cursor.getMonth()] + ' ' + cursor.getFullYear();
-    } else if (activeTab === 'Semana') {
-      const s = startOfWeek(cursor);
+    } else if (activeTab === 'Semana' || activeTab === ABA_TEMA) {
+      const s = activeTab === ABA_TEMA ? NCSemana.segundaDa(cursor) : startOfWeek(cursor);
       const e = addDays(s, 6);
       if (s.getFullYear() !== e.getFullYear()) {
         text = s.getDate() + ' ' + MONTH_SHORT[s.getMonth()] + ' ' + s.getFullYear() + ' – ' + e.getDate() + ' ' + MONTH_SHORT[e.getMonth()] + ' ' + e.getFullYear();
@@ -236,8 +251,8 @@
         return '<div style="padding:2px 6px;border-radius:4px;background:' + it.bg + ';color:' + it.color + ';font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(it.label) + '</div>';
       }).join('');
       if (items.length > 2) evHtml += '<span style="font-size:10px;font-weight:600;color:var(--nc-text2);padding-left:6px;">+' + (items.length - 2) + '</span>';
-      return '<div class="cal-cell-day" data-date="' + dateKey(cell.date) + '" style="min-height:110px;padding:10px 8px;' + ((idx + 1) % 7 !== 0 ? 'border-right:1px solid var(--nc-border);' : '') + (!isLast ? 'border-bottom:1px solid var(--nc-border);' : '') + 'background:' + (today ? 'rgba(37,99,235,0.04)' : 'transparent') + ';">' +
-        '<div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;background:' + (today ? '#2563EB' : 'transparent') + ';font-size:13px;font-weight:' + (today ? 800 : (cell.currentMonth ? 600 : 400)) + ';color:' + (today ? 'white' : (cell.currentMonth ? 'var(--nc-text)' : 'var(--nc-text2)')) + ';opacity:' + (cell.currentMonth ? 1 : 0.35) + ';">' + cell.day + '</div>' +
+      return '<div class="cal-cell-day" data-date="' + dateKey(cell.date) + '" style="min-height:110px;padding:10px 8px;' + ((idx + 1) % 7 !== 0 ? 'border-right:1px solid var(--nc-border);' : '') + (!isLast ? 'border-bottom:1px solid var(--nc-border);' : '') + 'background:' + (today ? 'var(--nc-hoje-tinta, rgba(37,99,235,0.04))' : 'transparent') + ';">' +
+        '<div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;background:' + (today ? 'var(--nc-hoje-bg, #2563EB)' : 'transparent') + ';font-size:13px;font-weight:' + (today ? 800 : (cell.currentMonth ? 600 : 400)) + ';color:' + (today ? 'white' : (cell.currentMonth ? 'var(--nc-text)' : 'var(--nc-text2)')) + ';opacity:' + (cell.currentMonth ? 1 : 0.35) + ';">' + cell.day + '</div>' +
         '<div style="display:flex;flex-direction:column;gap:3px;">' + evHtml + '</div></div>';
     }).join('');
 
@@ -301,6 +316,13 @@
     scrollToFocus(document.getElementById('dayScroll'), focus);
   }
 
+  /* ---------- visão TEMÁTICA (prateleira / escalação) ---------- */
+  function renderTema() {
+    NCSemana.render(document.getElementById('temaSemana'), TEMA, NCSemana.diasDosEventos(EVENTOS, cursor), {
+      aoClicar: function (dia) { cursor = parseKey(dia); activeTab = 'Hoje'; render(); },
+    });
+  }
+
   /* ---------- render geral e navegação ---------- */
   async function render() {
     renderTabs();
@@ -309,24 +331,32 @@
     monthView.classList.toggle('hidden', activeTab !== 'Mês');
     weekView.classList.toggle('hidden', activeTab !== 'Semana');
     dayView.classList.toggle('hidden', activeTab !== 'Hoje');
+    temaView.classList.toggle('hidden', activeTab !== ABA_TEMA);
 
     const [rangeInicio, rangeFim] = rangeParaView();
     await carregarEventos(rangeInicio, rangeFim);
 
-    if (activeTab === 'Mês') renderMonth();
+    if (activeTab === ABA_TEMA) renderTema();
+    else if (activeTab === 'Mês') renderMonth();
     else if (activeTab === 'Semana') renderWeek();
     else renderDay();
   }
 
   function shift(dir) {
     if (activeTab === 'Mês') cursor = addMonths(cursor, dir);
-    else if (activeTab === 'Semana') cursor = addDays(cursor, 7 * dir);
+    else if (activeTab === 'Semana' || activeTab === ABA_TEMA) cursor = addDays(cursor, 7 * dir);
     else cursor = addDays(cursor, dir);
     render();
   }
 
   document.getElementById('calPrev').addEventListener('click', function () { shift(-1); });
   document.getElementById('calNext').addEventListener('click', function () { shift(1); });
+
+  /* link direto para um dia: /calendario?dia=AAAA-MM-DD (a tela inicial usa isso) */
+  (function () {
+    const dia = new URLSearchParams(window.location.search).get('dia');
+    if (dia && /^\d{4}-\d{2}-\d{2}$/.test(dia)) { cursor = parseKey(dia); activeTab = 'Hoje'; }
+  })();
 
   render();
 </script>

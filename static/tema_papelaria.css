@@ -1,0 +1,179 @@
+/* ============================================================
+   NEOCORTEX - Tema Papelaria  ->  static/tema_papelaria.css
+   Só vale com <html data-tema="papelaria">. Não muda estrutura:
+   redefine variáveis e classes que já existem no common.css.
+   Papel pontilhado, títulos à mão, fitas decoradas e marca-texto.
+   Cores de STATUS continuam as mesmas em qualquer tema.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&display=swap');
+
+[data-tema="papelaria"] {
+  --nc-bg: #FBF7EF;
+  --nc-surface: #FFFFFF;
+  --nc-border: #E4DCCB;
+  --nc-text: #2B2A33;
+  --nc-text2: #5B5966;
+  --nc-blue: #4B3BB0;
+  --nc-purple: #6C5BD4;
+
+  --pap-tinta: #2B2A33;
+  --pap-lilas: #6C5BD4;      /* fundo de botão: contraste ~5:1 com texto branco */
+  --pap-lilas-claro: #E9E3FA;
+  --pap-marca: #F6D776;      /* marca-texto */
+  --pap-ponto: #E7DECB;
+  --pap-sombra: #E7DECB;
+  --pap-destaque: #4B3BB0;
+  --pap-titulo: 'Caveat', 'Segoe Print', cursive;
+
+  /* para temas_comum.css */
+  --tema-titulo: var(--pap-titulo);
+  --tema-destaque: var(--pap-destaque);
+  --tema-boas-fundo: #FFFFFF;
+  --tema-balao: #FFF6C9;
+  --tema-trilho: #F1ECDF;
+  --tema-barra: repeating-linear-gradient(-8deg, rgba(255,255,255,0.35) 0 3px, transparent 3px 8px), linear-gradient(#F6D776, #F6D776);
+  --tema-selo-fundo: #F6D776;
+  --tema-selo-texto: #2B2A33;
+  --nc-aba-ativa-bg: var(--pap-lilas);
+  --nc-hoje-bg: var(--pap-lilas);
+  --nc-hoje-tinta: rgba(108, 91, 212, 0.08);
+}
+.dark[data-tema="papelaria"] {
+  --nc-bg: #1F1D24;
+  --nc-surface: #2A2730;
+  --nc-border: #3D3946;
+  --nc-text: #F3EFE6;
+  --nc-text2: #C2BCCD;
+  --nc-blue: #C7BCF7;
+  --pap-ponto: #2E2A36;
+  --pap-sombra: #16141A;
+  --pap-destaque: #C7BCF7;
+  --tema-boas-fundo: #2A2730;
+  --tema-balao: #3A3420;
+  --tema-trilho: #3D3946;
+  --tema-selo-fundo: #F6D776;
+  --tema-selo-texto: #2B2A33;
+}
+
+/* ---------- papel pontilhado e títulos à mão ---------- */
+[data-tema="papelaria"] .app-main {
+  background-color: var(--nc-bg);
+  background-image: radial-gradient(var(--pap-ponto) 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+[data-tema="papelaria"] .app-topbar h2 { font-family: var(--pap-titulo); font-size: 30px; font-weight: 700; }
+
+/* ---------- menu lateral: capa lilás de caderno, com a borda pontilhada da espiral ---------- */
+[data-tema="papelaria"] .app-sidebar { background: var(--pap-lilas-claro); border-right: 2px dashed #C9BEEF; color: var(--pap-tinta); }
+.dark[data-tema="papelaria"] .app-sidebar { background: #2A2540; border-right-color: #4A4170; color: #F3EFE6; }
+[data-tema="papelaria"] .app-sidebar .blob1 { background: rgba(246, 215, 118, 0.35); }
+[data-tema="papelaria"] .app-sidebar .blob2 { background: rgba(158, 217, 195, 0.35); }
+[data-tema="papelaria"] .app-sidebar .brand img { filter: brightness(0) opacity(0.85); }   /* logo escura no fundo claro */
+.dark[data-tema="papelaria"] .app-sidebar .brand img { filter: brightness(0) invert(1); }
+[data-tema="papelaria"] .app-sidebar a { color: #3A3352; }
+[data-tema="papelaria"] .app-sidebar a:hover { background: rgba(255, 255, 255, 0.6); color: var(--pap-tinta); }
+[data-tema="papelaria"] .app-sidebar a.active { background: #FFFFFF; color: var(--pap-tinta); box-shadow: 2px 2px 0 var(--pap-sombra); }
+[data-tema="papelaria"] .app-sidebar a.logout { color: #B4234A; }
+.dark[data-tema="papelaria"] .app-sidebar a { color: #E4DEF7; }
+.dark[data-tema="papelaria"] .app-sidebar a.active { background: #3A3358; color: #FFFFFF; box-shadow: none; }
+.dark[data-tema="papelaria"] .app-sidebar a.logout { color: #F5A3B5; }
+
+/* ---------- cartões como folhas empilhadas ---------- */
+[data-tema="papelaria"] .nc-card { border-radius: 10px; border: 1.5px solid var(--nc-border); box-shadow: 3px 4px 0 var(--pap-sombra); }
+
+/* ---------- botões, campos e controles ---------- */
+[data-tema="papelaria"] .btn-primary { background: var(--pap-lilas); box-shadow: 3px 3px 0 var(--pap-tinta); }
+.dark[data-tema="papelaria"] .btn-primary { background: #8C7BFF; color: #1F1D24; box-shadow: none; }
+[data-tema="papelaria"] .btn-outline:hover,
+[data-tema="papelaria"] .btn-ghost-sm:hover { border-color: var(--pap-destaque); color: var(--pap-destaque); }
+[data-tema="papelaria"] .nc-input:focus,
+[data-tema="papelaria"] .app-topbar .search:focus { border-color: var(--pap-destaque); }
+[data-tema="papelaria"] .chip.active { border-color: var(--pap-destaque); background: rgba(108, 91, 212, 0.12); color: var(--pap-destaque); }
+[data-tema="papelaria"] .nc-toggle.on { background: var(--pap-lilas); }
+[data-tema="papelaria"] .app-topbar .avatar { background: var(--pap-marca); color: var(--pap-tinta); box-shadow: 2px 2px 0 var(--pap-tinta); }
+[data-tema="papelaria"] .fab { background: var(--pap-lilas); box-shadow: 4px 4px 0 var(--pap-tinta); }
+
+/* ---------- chat ---------- */
+[data-tema="papelaria"] .chat-bubble-user { background: var(--pap-lilas); box-shadow: 3px 3px 0 var(--pap-tinta); }
+[data-tema="papelaria"] .chat-avatar-simples { background: var(--pap-lilas); }
+
+/* ---------- calendário ---------- */
+[data-tema="papelaria"] .cal-head-day.is-today .wd { color: var(--pap-destaque); }
+[data-tema="papelaria"] .cal-head-day.is-today .num,
+[data-tema="papelaria"] .cal-day-big { background: var(--pap-lilas); }
+[data-tema="papelaria"] .cal-col-today { background-color: rgba(108, 91, 212, 0.06); }
+[data-tema="papelaria"] .cal-cell-day:hover { box-shadow: inset 0 0 0 2px rgba(108, 91, 212, 0.4); }
+
+/* ---------- elementos com cor inline nos templates (marcados com classe) ---------- */
+[data-tema="papelaria"] .nc-hero-progresso { background: var(--pap-lilas) !important; }
+[data-tema="papelaria"] .nc-barra-progresso { background: var(--pap-marca) !important; }
+[data-tema="papelaria"] .nc-aba-ativa { background: var(--pap-lilas) !important; color: #FFFFFF !important; }
+
+/* ---------- tela inicial: fita no cartão de boas-vindas e selo "feito!" ---------- */
+[data-tema="papelaria"] .nc-inicio-boas { overflow: visible; }
+[data-tema="papelaria"] .nc-inicio-boas::before {
+  content: ""; position: absolute; top: -10px; left: 28px; width: 92px; height: 22px; transform: rotate(-3deg);
+  background: #9ED9C3; opacity: 0.9; pointer-events: none;
+  background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.35) 0 4px, transparent 4px 9px);
+}
+[data-tema="papelaria"] .nc-inicio-boas h2 { font-size: 40px; }
+[data-tema="papelaria"] .nc-inicio-boas .frase { border-color: #E9D98F; }
+.dark[data-tema="papelaria"] .nc-inicio-boas .frase { border-color: #5A4E28; }
+[data-tema="papelaria"] .nc-inicio-placar .rotulo { font-family: var(--pap-titulo); font-size: 24px; text-transform: none; letter-spacing: 0; }
+[data-tema="papelaria"] .nc-inicio-semana h3 { font-size: 30px; }
+[data-tema="papelaria"] .nc-titulo-tema { font-size: 26px !important; }
+[data-tema="papelaria"] .nc-selo {
+  font-family: var(--pap-titulo); font-size: 18px; line-height: 1; padding: 3px 10px;
+  border: 2px solid var(--pap-tinta); transform: rotate(-6deg);
+}
+
+/* ---------- planner: uma folha por dia ---------- */
+.nc-planner { list-style: none; margin: 0; padding: 14px 4px 8px; display: flex; gap: 14px; overflow-x: auto; }
+.nc-planner li { flex: 1 0 116px; min-width: 116px; }
+.nc-folha {
+  position: relative; width: 100%; height: 100%; box-sizing: border-box; padding: 24px 12px 14px; border-radius: 6px; text-align: left;
+  border: 1.5px solid #E4DCCB; background-color: #FFFFFF; color: #2B2A33; font: inherit; cursor: pointer;
+  display: flex; flex-direction: column; gap: 6px; transition: transform 0.15s;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 21px, #EEE8DA 21px 22px);
+}
+.nc-folha:hover { transform: translateY(-2px) rotate(-0.5deg); }
+.nc-folha:focus-visible { outline: 3px solid #6C5BD4; outline-offset: 2px; }
+.nc-folha.is-hoje { border: 3px solid #6C5BD4; }
+.nc-folha .fita {
+  position: absolute; top: -9px; left: 20px; width: 70px; height: 20px; opacity: 0.9;
+  background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.35) 0 4px, transparent 4px 9px);
+}
+.nc-planner li:nth-child(odd) .fita { transform: rotate(-3deg); }
+.nc-planner li:nth-child(even) .fita { transform: rotate(2deg); }
+.fita-menta { background-color: #9ED9C3; }
+.fita-amarela { background-color: #F6D776; }
+.fita-coral { background-color: #F29B8C; }
+.fita-lilas { background-color: #C7BCF7; }
+.nc-folha .dia { font-family: 'Caveat', 'Segoe Print', cursive; font-size: 30px; font-weight: 700; line-height: 1; }
+.nc-folha .data { font-size: 12px; font-weight: 600; color: #5B5966; }
+.nc-folha .caixas { display: flex; flex-wrap: wrap; gap: 4px; min-height: 14px; }
+.nc-folha .caixa { width: 13px; height: 13px; border-radius: 3px; box-sizing: border-box; border: 2px solid #2B2A33; }
+.nc-folha .caixa.feita { background: #2B2A33; }
+.nc-folha .caixa.planejada { border-style: dashed; border-color: #8A8696; }
+.nc-folha .mais { font-size: 11px; font-weight: 800; color: #5B5966; }
+.nc-folha .resumo { font-size: 13px; font-weight: 700; }
+.nc-folha .estado { font-size: 12px; font-weight: 800; color: #5B5966; }
+.nc-folha.estado-feito .estado { color: #1F7A5A; }
+.nc-folha.estado-parcial .estado, .nc-folha.estado-aberto .estado { color: #8A5A00; }
+.nc-folha.estado-hoje .estado { color: #4B3BB0; }
+.nc-folha .adesivo { position: absolute; right: -8px; bottom: -8px; width: 38px; height: 38px; transform: rotate(14deg); }
+.nc-folha .adesivo path { fill: #F6D776; stroke: #2B2A33; stroke-width: 2; stroke-linejoin: round; }
+/* no escuro, as folhas continuam claras (papel), então o texto delas fica escuro de propósito */
+
+@media (prefers-reduced-motion: reduce) {
+  .nc-folha { transition: none; }
+  .nc-folha:hover { transform: none; }
+}
+
+/* rede da semana na VERSÃO SIMPLES do tema (a completa usa o planner) */
+[data-tema="papelaria"] {
+  --trilha-fundo: radial-gradient(120% 140% at 20% 0%, #463B78 0%, #2A2540 60%, #1F1D24 100%);
+  --trilha-cartao: #332C55; --trilha-cartao-feito: linear-gradient(180deg, #463B78 0%, #332C55 100%); --trilha-cartao-hoje: #3B3263;
+  --trilha-borda: #5C519A; --trilha-apagada: #3D3660;
+  --trilha-luz: #F6D776; --trilha-luz2: #C7BCF7; --trilha-brilho: rgba(246, 215, 118, 0.5);
+}

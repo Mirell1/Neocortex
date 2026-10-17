@@ -42,11 +42,12 @@
   .chat-avatar-usuario { font-weight: 800; font-size: 13px; }
 </style>
 
-{# [MASCOTE] avatar do assistente: robô vivo na última mensagem, parado no histórico #}
+{# [MASCOTE] [PERSONALIZAR] avatar do assistente: mascote vivo na última mensagem, parado no histórico,
+   com o acessório e a cor que a pessoa escolheu para ele #}
 {% macro avatar_assistente(vivo) %}
   {% if mascote_ativo %}
   <div class="nc-chat-avatar">
-    <div data-nc-mascote data-modo="avatar" data-skin="{{ mascote_skin }}" data-intensidade="{{ mascote_intensidade }}"{{ '' if vivo else ' data-estatico' }}></div>
+    <div data-nc-mascote data-modo="avatar" data-skin="{{ mascote_skin }}" data-intensidade="{{ mascote_intensidade }}" data-acessorio="{{ mascote_acessorio }}"{% if mascote_cor %} data-cor="{{ mascote_cor }}" data-brilho="{{ mascote_brilho }}"{% endif %}{{ '' if vivo else ' data-estatico' }}></div>
   </div>
   {% else %}
   <div class="chat-avatar-simples">◈</div>
@@ -68,7 +69,7 @@
     </div>
     {% else %}
     <div style="display:flex;gap:12px;flex-direction:row-reverse;align-items:flex-end;">
-      {# [MASCOTE] corrigido: aqui ficava o mascote (e um <div> sem fechar); o lado do usuário mostra a inicial dele #}
+      {# o lado do usuário mostra a inicial dele #}
       <div class="chat-avatar-simples chat-avatar-usuario">{{ inicial_usuario }}</div>
       <div style="max-width:65%;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
         <div class="chat-bubble-user">{{ m.conteudo }}</div>
@@ -78,7 +79,7 @@
     </div>
     {% endif %}
     {% else %}
-    {# [MASCOTE] conversa vazia: o robô se apresenta #}
+    {# [MASCOTE] conversa vazia: o mascote se apresenta #}
     <div style="display:flex;gap:12px;align-items:flex-end;">
       {{ avatar_assistente(true) }}
       <div class="chat-bubble-assist" style="max-width:65%;">Oi! Posso criar tarefas, organizar sua semana e ajudar com seus objetivos.</div>
@@ -111,7 +112,7 @@
     const lista = document.getElementById('chatMensagens');
     lista.scrollTop = lista.scrollHeight;   // abre já na mensagem mais recente
 
-    // [MASCOTE] enquanto o servidor espera a IA, mostra a mensagem enviada e o robô pensando.
+    // [MASCOTE] enquanto o servidor espera a IA, mostra a mensagem enviada e o mascote pensando.
     // Não cancela o envio: a página continua visível até a resposta chegar e recarregar.
     let enviando = false;
     document.querySelectorAll('.form-chat').forEach(function (form) {
@@ -139,6 +140,12 @@
           const robo = new window.NCMascote(linhaIA.querySelector('.nc-chat-avatar > div'), {
             modo: 'avatar', skin: {{ (mascote_skin or 'robo')|tojson }},
             intensidade: {{ (mascote_intensidade or '')|tojson }} || undefined,
+            // [PERSONALIZAR] mesmo acessório e cor do mascote atual
+            visual: {
+              acessorio: {{ (mascote_acessorio or 'nenhum')|tojson }},
+              cor: {{ (mascote_cor or '')|tojson }} || undefined,
+              brilho: {{ (mascote_brilho or '')|tojson }} || undefined,
+            },
           });
           robo.reage('ia_pensando');
         }

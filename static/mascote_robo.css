@@ -491,3 +491,223 @@
 }
 @keyframes nc-embaixadinha { 0% { transform: rotate(0); } 70%, 100% { transform: rotate(360deg); } }  /* volta inteira: o rosto termina de pé */
 @keyframes nc-costura-brilha { 0%, 100% { stroke: var(--nc-mascote-cor); } 45% { stroke: var(--nc-sinal); } }
+
+/* ============================================================
+   [PERSONALIZAR] Acessórios por mascote (encaixes provisórios)
+   O robô usa as regras globais de acessório mais acima. Grão e Boltz ganham
+   contorno na tinta própria e seguem a cor escolhida pela pessoa
+   (--nc-mascote-cor / --nc-mascote-brilho).
+   Para trocar o desenho: edite o SVG em mascote_robo.js (SVG_GRAO / SVG_BOLTZ),
+   mantendo as classes nc-acessorio-gorro | -oculos | -cachecol.
+   ============================================================ */
+.nc-mascote[data-skin="grao"] .nc-acessorio-gorro .copa,
+.nc-mascote[data-skin="grao"] .nc-acessorio-gorro .faixa,
+.nc-mascote[data-skin="grao"] .nc-acessorio-gorro .pompom,
+.nc-mascote[data-skin="grao"] .nc-acessorio-cachecol path:not(.listra) { stroke: var(--nc-grao-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-mascote[data-skin="boltz"] .nc-acessorio-gorro .copa,
+.nc-mascote[data-skin="boltz"] .nc-acessorio-gorro .faixa,
+.nc-mascote[data-skin="boltz"] .nc-acessorio-gorro .pompom,
+.nc-mascote[data-skin="boltz"] .nc-acessorio-cachecol path:not(.listra) { stroke: var(--nc-boltz-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+
+.nc-mascote[data-skin="grao"] .nc-acessorio-gorro .copa,
+.nc-mascote[data-skin="boltz"] .nc-acessorio-gorro .copa { fill: var(--nc-mascote-cor); }
+.nc-mascote[data-skin="grao"] .nc-acessorio-gorro .faixa,
+.nc-mascote[data-skin="boltz"] .nc-acessorio-gorro .faixa { fill: var(--nc-mascote-brilho); }
+.nc-mascote[data-skin="grao"] .nc-acessorio-gorro .pompom,
+.nc-mascote[data-skin="boltz"] .nc-acessorio-gorro .pompom { fill: #FFFFFF; }
+.nc-mascote[data-skin="grao"] .nc-acessorio-cachecol path:not(.listra),
+.nc-mascote[data-skin="boltz"] .nc-acessorio-cachecol path:not(.listra) { fill: var(--nc-mascote-cor); }
+
+.nc-mascote[data-skin="grao"] .nc-acessorio-oculos circle { fill: rgba(255, 255, 255, 0.35); stroke: var(--nc-grao-tinta); }
+.nc-mascote[data-skin="grao"] .nc-acessorio-oculos path { stroke: var(--nc-grao-tinta); }
+.nc-mascote[data-skin="boltz"] .nc-acessorio-oculos circle { fill: rgba(255, 255, 255, 0.35); stroke: var(--nc-boltz-tinta); }
+.nc-mascote[data-skin="boltz"] .nc-acessorio-oculos path { stroke: var(--nc-boltz-tinta); }
+/* ============================================================
+   BOLTZ - REDESENHO (rosto em visor escuro, aletas e fones)
+   Estas regras vêm depois das antigas e as substituem.
+   ============================================================ */
+.nc-mascote[data-skin="boltz"] {
+  --nc-mascote-cor: #22C55E;      /* luz verde: olhos, aletas, fones, costura do visor */
+  --nc-mascote-brilho: #86F7B5;
+  --nc-sinal: #D8B565;            /* dourado das comemorações */
+  --nc-boltz-tinta: #0B0F14;
+  --nc-boltz-gomo: #111827;
+  --nc-boltz-visor: #0E141C;
+  --nc-boltz-olho: #5CF2A6;
+}
+.dark .nc-mascote[data-skin="boltz"] { --nc-boltz-gomo: #111827; }
+
+.nc-mascote[data-skin="boltz"] .nc-gomos path { fill: var(--nc-boltz-gomo); }
+.nc-mascote[data-skin="boltz"] .nc-costuras path { stroke: #CBD5E1; stroke-width: 2.5; }
+.nc-mascote[data-skin="boltz"] .nc-aletas .aleta { fill: #1B2433; stroke: var(--nc-boltz-tinta); stroke-width: 3; stroke-linejoin: round; }
+.nc-mascote[data-skin="boltz"] .nc-aletas .aleta-luz { fill: var(--nc-mascote-cor); opacity: 0.9; }
+.nc-mascote[data-skin="boltz"] .nc-fones .fone { fill: #1B2433; stroke: var(--nc-boltz-tinta); stroke-width: 3; }
+.nc-mascote[data-skin="boltz"] .nc-fones .fone-luz { fill: none; stroke: var(--nc-mascote-cor); stroke-width: 3; }
+.nc-mascote[data-skin="boltz"] .nc-visor { fill: var(--nc-boltz-visor); stroke: #2A3646; stroke-width: 3; }
+.nc-mascote[data-skin="boltz"] .nc-costura-luz { fill: none; stroke: var(--nc-mascote-cor); stroke-width: 2; opacity: 0.55; }
+.nc-mascote[data-skin="boltz"] .nc-visor-reflexo { fill: none; stroke: #FFFFFF; stroke-width: 3; stroke-linecap: round; opacity: 0.2; }
+.nc-mascote[data-skin="boltz"] .nc-pernas .chuteira { fill: #1B2433; }
+.nc-mascote[data-skin="boltz"] .nc-pernas .sola { fill: none; stroke: var(--nc-mascote-cor); stroke-width: 3; stroke-linecap: round; }
+.nc-mascote[data-skin="boltz"] .nc-bochechas circle { fill: var(--nc-mascote-cor); opacity: 0.22; }
+
+/* rosto aceso no visor (como o robô), agora em verde */
+.nc-mascote[data-skin="boltz"] .nc-olhos,
+.nc-mascote[data-skin="boltz"] .nc-boca { filter: drop-shadow(0 0 4px var(--nc-boltz-olho)); }
+.nc-mascote[data-skin="boltz"] .nc-olhos ellipse,
+.nc-mascote[data-skin="boltz"] .nc-boca-feliz,
+.nc-mascote[data-skin="boltz"] .nc-boca-pensando circle,
+.nc-mascote[data-skin="boltz"] .nc-boca-falando { fill: var(--nc-boltz-olho); }
+.nc-mascote[data-skin="boltz"] .nc-olhos .brilho { fill: #FFFFFF; opacity: 0.85; }
+.nc-mascote[data-skin="boltz"] .nc-olhos path:not(.cheio),
+.nc-mascote[data-skin="boltz"] .nc-boca-neutra,
+.nc-mascote[data-skin="boltz"] .nc-boca-fechados,
+.nc-mascote[data-skin="boltz"] .nc-boca-confuso,
+.nc-mascote[data-skin="boltz"] .nc-boca-surpresa,
+.nc-mascote[data-skin="boltz"] .nc-boca-feliz { stroke: var(--nc-boltz-olho); }
+.nc-mascote[data-skin="boltz"] .nc-olhos .cheio,
+.nc-mascote[data-skin="boltz"][data-olhos="estrela"] .nc-olhos .cheio { fill: var(--nc-sinal); stroke: none; }
+.nc-mascote[data-skin="boltz"] .nc-braco-dir { transform-origin: 156px 116px; }
+.nc-mascote[data-skin="boltz"] .nc-braco-esq { transform-origin: 44px 116px; }
+.nc-mascote[data-skin="boltz"] .nc-giro { transform-origin: 100px 100px; }
+
+/* aletas e fones acendem nas comemorações e piscam enquanto a IA pensa */
+.nc-mascote[data-skin="boltz"]:not([data-intensidade="desligada"])[data-estado^="comemora"] .aleta-luz,
+.nc-mascote[data-skin="boltz"]:not([data-intensidade="desligada"])[data-estado^="comemora"] .fone-luz { animation: nc-boltz-luz 0.8s ease-in-out 2; }
+.nc-mascote[data-skin="boltz"]:not([data-intensidade="desligada"])[data-estado="pensando"] .fone-luz { animation: nc-processa 1.1s ease-in-out infinite; }
+@keyframes nc-boltz-luz { 0%, 100% { fill: var(--nc-mascote-cor); stroke: var(--nc-mascote-cor); } 45% { fill: var(--nc-sinal); stroke: var(--nc-sinal); } }
+
+/* ============================================================
+   VISUAL: RABISCO (tema Papelaria) - data-skin="rabisco"
+   Gato lilás com lápis atrás da orelha. Mesmo rosto e estados.
+   ============================================================ */
+.nc-mascote[data-skin="rabisco"] {
+  --nc-mascote-cor: #6C5BD4;      /* partículas e detalhes */
+  --nc-mascote-brilho: #E9E3FA;
+  --nc-sinal: #F6D776;            /* amarelo marca-texto */
+  --nc-rabisco-tinta: #2B2A33;
+  --nc-rabisco-pelo: #D9D1F7;
+}
+.nc-mascote[data-skin="rabisco"] .nc-gato-pelo { fill: var(--nc-rabisco-pelo); stroke: var(--nc-rabisco-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-mascote[data-skin="rabisco"] .nc-gato-pata { fill: #FFFFFF; stroke: var(--nc-rabisco-tinta); stroke-width: 3; }
+.nc-mascote[data-skin="rabisco"] .orelha-dentro { fill: #F4A7B9; }
+.nc-mascote[data-skin="rabisco"] .nc-gato-listra { fill: none; stroke: #B3A6EA; stroke-width: 4; stroke-linecap: round; }
+.nc-mascote[data-skin="rabisco"] .rabo-fora { fill: none; stroke: var(--nc-rabisco-tinta); stroke-width: 15; stroke-linecap: round; }
+.nc-mascote[data-skin="rabisco"] .rabo-dentro { fill: none; stroke: var(--nc-rabisco-pelo); stroke-width: 8; stroke-linecap: round; }
+.nc-mascote[data-skin="rabisco"] .nc-lapis .madeira { fill: #F6D776; stroke: var(--nc-rabisco-tinta); stroke-width: 2.5; }
+.nc-mascote[data-skin="rabisco"] .nc-lapis .ponta { fill: #F2C9A0; stroke: var(--nc-rabisco-tinta); stroke-width: 2.5; stroke-linejoin: round; }
+.nc-mascote[data-skin="rabisco"] .nc-lapis .borracha { fill: #F29B8C; stroke: var(--nc-rabisco-tinta); stroke-width: 2.5; }
+.nc-mascote[data-skin="rabisco"] .nc-bigodes { fill: none; stroke: var(--nc-rabisco-tinta); stroke-width: 2.2; stroke-linecap: round; }
+.nc-mascote[data-skin="rabisco"] .nc-focinho { fill: #E8899E; stroke: var(--nc-rabisco-tinta); stroke-width: 1.8; stroke-linejoin: round; }
+.nc-mascote[data-skin="rabisco"] .nc-bochechas circle { fill: #F4A7B9; opacity: 0.6; }
+.nc-mascote[data-skin="rabisco"] .nc-rabo,
+.nc-mascote[data-skin="rabisco"] .nc-orelhas { transform-box: view-box; }
+.nc-mascote[data-skin="rabisco"] .nc-rabo { transform-origin: 140px 168px; }
+.nc-mascote[data-skin="rabisco"] .nc-orelhas { transform-origin: 100px 60px; }
+
+/* rosto: tinta de caneta */
+.nc-mascote[data-skin="rabisco"] .nc-olhos,
+.nc-mascote[data-skin="rabisco"] .nc-boca { filter: none; }
+.nc-mascote[data-skin="rabisco"] .nc-olhos ellipse,
+.nc-mascote[data-skin="rabisco"] .nc-boca-feliz,
+.nc-mascote[data-skin="rabisco"] .nc-boca-pensando circle,
+.nc-mascote[data-skin="rabisco"] .nc-boca-falando { fill: var(--nc-rabisco-tinta); }
+.nc-mascote[data-skin="rabisco"] .nc-olhos .brilho { fill: #FFFFFF; }
+.nc-mascote[data-skin="rabisco"] .nc-olhos path:not(.cheio),
+.nc-mascote[data-skin="rabisco"] .nc-boca-neutra,
+.nc-mascote[data-skin="rabisco"] .nc-boca-fechados,
+.nc-mascote[data-skin="rabisco"] .nc-boca-confuso,
+.nc-mascote[data-skin="rabisco"] .nc-boca-surpresa,
+.nc-mascote[data-skin="rabisco"] .nc-boca-feliz { stroke: var(--nc-rabisco-tinta); }
+.nc-mascote[data-skin="rabisco"] .nc-olhos .cheio { fill: #F6D776; stroke: var(--nc-rabisco-tinta); stroke-width: 2; }
+.nc-mascote[data-skin="rabisco"] .nc-interrogacao { fill: var(--nc-mascote-cor); }
+.nc-mascote[data-skin="rabisco"] .nc-giro { transform-origin: 100px 100px; }
+
+/* movimento próprio: o rabo balança no repouso; as orelhas mexem ao tocar */
+.nc-mascote[data-skin="rabisco"][data-intensidade="completa"][data-estado="neutro"] .nc-corpo { animation: nc-respira-grao 4s ease-in-out infinite; }
+.nc-mascote[data-skin="rabisco"][data-intensidade="completa"]:not([data-estado="descanso"]) .nc-rabo { animation: nc-rabo 2.6s ease-in-out infinite; }
+.nc-mascote[data-skin="rabisco"][data-intensidade="completa"][data-estado="toque"] .nc-orelhas,
+.nc-mascote[data-skin="rabisco"][data-intensidade="completa"][data-estado="surpresa"] .nc-orelhas { animation: nc-orelhas 0.5s ease-out; }
+.nc-mascote[data-skin="rabisco"]:not([data-intensidade="desligada"])[data-estado^="comemora"] .nc-lapis .madeira { animation: nc-lapis-brilha 0.8s ease-in-out 2; }
+@keyframes nc-rabo { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-8deg); } }
+@keyframes nc-orelhas { 0%, 100% { transform: scaleY(1); } 40% { transform: scaleY(1.08) translateY(-2px); } }
+@keyframes nc-lapis-brilha { 0%, 100% { fill: #F6D776; } 45% { fill: #FFFFFF; } }
+
+/* ============================================================
+   [ACESSÓRIOS] Cada mascote tem os seus acessórios (catálogo em app.py: ACESSORIOS_POR_MASCOTE).
+   Para trocar um desenho: edite o grupo .nc-acessorio-<id> no SVG do mascote em mascote_robo.js.
+   As cores seguem a cor escolhida pela pessoa (--nc-mascote-cor / --nc-mascote-brilho).
+   ============================================================ */
+.nc-mascote[data-acessorio="protetor"] .nc-acessorio-protetor,
+.nc-mascote[data-acessorio="oculos3d"] .nc-acessorio-oculos3d,
+.nc-mascote[data-acessorio="anjo"] .nc-acessorio-anjo,
+.nc-mascote[data-acessorio="jaqueta"] .nc-acessorio-jaqueta,
+.nc-mascote[data-acessorio="chuteira"] .nc-acessorio-chuteira,
+.nc-mascote[data-acessorio="uniforme"] .nc-acessorio-uniforme,
+.nc-mascote[data-acessorio="capacete"] .nc-acessorio-capacete,
+.nc-mascote[data-acessorio="prancheta"] .nc-acessorio-prancheta,
+.nc-mascote[data-acessorio="caminha"] .nc-acessorio-caminha { display: inline; }
+
+/* ---- robô: protetor de orelha térmico (com gorro em outra cor) e óculos 3D de cinema ---- */
+.nc-acessorio-protetor .banda { fill: none; stroke: var(--nc-robo-contorno); stroke-width: 5; stroke-linecap: round; }
+.nc-acessorio-protetor .copa { fill: var(--nc-mascote-cor); stroke: var(--nc-robo-contorno); stroke-width: 3; stroke-linejoin: round; }
+.nc-acessorio-protetor .faixa { fill: var(--nc-mascote-brilho); stroke: var(--nc-robo-contorno); stroke-width: 3; }
+.nc-acessorio-protetor .pompom { fill: #FFFFFF; stroke: var(--nc-robo-contorno); stroke-width: 3; }
+.nc-acessorio-protetor .concha { fill: var(--nc-mascote-brilho); stroke: var(--nc-robo-contorno); stroke-width: 3.5; }
+.nc-acessorio-protetor .almofada { fill: var(--nc-mascote-cor); stroke: none; }
+.nc-acessorio-oculos3d .lente-e { fill: rgba(255, 64, 64, 0.5); stroke: #FFFFFF; stroke-width: 3.5; }
+.nc-acessorio-oculos3d .lente-d { fill: rgba(34, 211, 238, 0.5); stroke: #FFFFFF; stroke-width: 3.5; }
+.nc-acessorio-oculos3d .ponte { fill: #FFFFFF; stroke: none; }
+.nc-acessorio-oculos3d .haste { fill: none; stroke: #FFFFFF; stroke-width: 3; stroke-linecap: round; }
+
+/* ---- Grão: asas e auréola; jaqueta com capuz felpudo ---- */
+.nc-acessorio-anjo .asa { fill: #FFFFFF; stroke: var(--nc-grao-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-acessorio-anjo .pena { fill: none; stroke: #D9CBB8; stroke-width: 2.5; stroke-linecap: round; }
+.nc-acessorio-anjo .aureola { fill: none; stroke: #E2A829; stroke-width: 7; }
+.nc-acessorio-anjo .aureola-brilho { fill: none; stroke: #FFE08A; stroke-width: 3; }
+.nc-mascote[data-acessorio="anjo"] .nc-vapor { opacity: 0.35; }
+.nc-acessorio-jaqueta .corpo-jaqueta { fill: var(--nc-mascote-cor); stroke: var(--nc-grao-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-acessorio-jaqueta .ziper { fill: none; stroke: var(--nc-grao-tinta); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 3 2.5; }
+.nc-acessorio-jaqueta .puxador { fill: var(--nc-mascote-brilho); stroke: var(--nc-grao-tinta); stroke-width: 2; }
+.nc-acessorio-jaqueta .bolso { fill: none; stroke: var(--nc-grao-tinta); stroke-width: 2.5; stroke-linecap: round; opacity: 0.55; }
+.nc-acessorio-jaqueta .pelo-fundo circle { fill: var(--nc-grao-tinta); }
+.nc-acessorio-jaqueta .pelo circle { fill: #FFF6E5; }
+
+/* ---- Boltz: chuteira de ouro; uniforme do time do NEOCORTEX (cores da marca, não mudam com a cor escolhida) ---- */
+.nc-acessorio-chuteira .bota { fill: #F2C14E; stroke: var(--nc-boltz-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-acessorio-chuteira .sola-ouro { fill: none; stroke: var(--nc-boltz-tinta); stroke-width: 2.5; }
+.nc-acessorio-chuteira .cadarco { fill: none; stroke: var(--nc-boltz-tinta); stroke-width: 2; stroke-linecap: round; }
+.nc-acessorio-chuteira .brilho-bota { fill: none; stroke: #FFF3C4; stroke-width: 2.5; stroke-linecap: round; }
+.nc-acessorio-chuteira .travas rect { fill: var(--nc-boltz-tinta); }
+.nc-acessorio-chuteira .faisca-ouro { fill: #FFE27A; stroke: none; }
+.nc-acessorio-uniforme .camisa { fill: #2563EB; stroke: var(--nc-boltz-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-acessorio-uniforme .gola, .nc-acessorio-uniforme .barra-manga { fill: none; stroke: #7C3AED; stroke-width: 4; stroke-linecap: round; }
+.nc-acessorio-uniforme .numero { fill: none; stroke: #FFFFFF; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- Rabisco: capacete de pedreiro, prancheta e caminha de gato ---- */
+.nc-acessorio-capacete .casco, .nc-acessorio-capacete .aba { fill: #FFC933; stroke: var(--nc-rabisco-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-acessorio-capacete .nervura { fill: #F5A300; stroke: var(--nc-rabisco-tinta); stroke-width: 3; }
+.nc-acessorio-capacete .brilho-capacete { fill: none; stroke: #FFF1B0; stroke-width: 3; stroke-linecap: round; }
+.nc-acessorio-prancheta .prancha { fill: #C98E55; stroke: var(--nc-rabisco-tinta); stroke-width: 3.5; }
+.nc-acessorio-prancheta .folha { fill: #FFFFFF; stroke: var(--nc-rabisco-tinta); stroke-width: 2; }
+.nc-acessorio-prancheta .presilha { fill: #9AA3B2; stroke: var(--nc-rabisco-tinta); stroke-width: 3; }
+.nc-acessorio-prancheta .linhas { fill: none; stroke: #B8BDD0; stroke-width: 2.5; stroke-linecap: round; }
+.nc-acessorio-prancheta .check { fill: none; stroke: #22C55E; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.nc-acessorio-prancheta .pata-segura { fill: var(--nc-rabisco-pelo); stroke: var(--nc-rabisco-tinta); stroke-width: 3.5; }
+.nc-acessorio-caminha .borda-fundo { fill: var(--nc-mascote-cor); stroke: var(--nc-rabisco-tinta); stroke-width: 3.5; }
+.nc-acessorio-caminha .miolo { fill: var(--nc-mascote-brilho); stroke: none; }
+.nc-acessorio-caminha .borda-frente { fill: var(--nc-mascote-cor); stroke: var(--nc-rabisco-tinta); stroke-width: 3.5; stroke-linejoin: round; }
+.nc-acessorio-caminha .costura-cama { fill: none; stroke: var(--nc-mascote-brilho); stroke-width: 2; stroke-dasharray: 4 3; opacity: 0.85; }
+/* descanso com a caminha: o gato se aninha (a caminha fica parada, o gato afunda e respira) */
+.nc-mascote[data-skin="rabisco"][data-acessorio="caminha"][data-estado="descanso"] .nc-corpo {
+  transform-origin: 100px 186px; transform: translateY(5px) scale(1.04, 0.86); animation: none;
+}
+.nc-mascote[data-skin="rabisco"][data-acessorio="caminha"][data-estado="descanso"][data-intensidade="completa"] .nc-corpo {
+  animation: nc-respira-gato 4s ease-in-out infinite;
+}
+@keyframes nc-respira-gato {
+  0%, 100% { transform: translateY(5px) scale(1.04, 0.86); }
+  50% { transform: translateY(4px) scale(1.04, 0.885); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-mascote[data-skin="rabisco"][data-acessorio="caminha"][data-estado="descanso"] .nc-corpo { animation: none !important; }
+}

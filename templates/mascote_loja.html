@@ -3,10 +3,7 @@
 <div style="padding:32px;display:flex;flex-direction:column;align-items:center;">
   <div style="width:100%;max-width:720px;">
     <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:var(--nc-text);">Loja</h2>
-    <p style="margin:0 0 28px;font-size:13px;font-weight:600;color:var(--nc-text2);">Você tem {{ mascote_pontos }} pontos. Escolha um acessório desbloqueado pra usar.</p>
-    {% if mascote_skin != 'robo' %}
-    <p style="margin:-14px 0 20px;font-size:12px;font-weight:600;color:var(--nc-text2);">Os acessórios são do robô. Com este tema ativo o mascote é outro, então eles aparecem só no tema Padrão.</p>
-    {% endif %}
+    <p style="margin:0 0 28px;font-size:13px;font-weight:600;color:var(--nc-text2);">Você tem {{ mascote_pontos }} pontos. Escolha um acessório desbloqueado para o {{ mascote_nome }}. Cada mascote guarda o seu visual.</p>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;">
 
@@ -25,8 +22,8 @@
       {% set desbloqueado = a.id in desbloqueados %}
       <div class="nc-card" style="padding:20px;text-align:center;{{ 'outline:2px solid #2563EB;' if equipado_atual == a.id else '' }}{{ 'opacity:0.5;' if not desbloqueado else '' }}">
         <div style="height:120px;display:flex;align-items:center;justify-content:center;">
-          {# mascote_skin='robo': os acessórios existem só no robô; sem isso, no tema Cafeteria a prévia mostraria o Grão sem acessório #}
-          {% with mascote_modo='normal', mascote_estatico=true, mascote_skin='robo', mascote_acessorio=(a.id if desbloqueado else '') %}{% include "partials/mascote.html" %}{% endwith %}
+          {# a prévia usa o mascote do tema ativo (todos têm encaixes de acessório) #}
+          {% with mascote_modo='normal', mascote_estatico=true, mascote_acessorio=(a.id if desbloqueado else '') %}{% include "partials/mascote.html" %}{% endwith %}
         </div>
         <p style="margin:12px 0 4px;font-size:13px;font-weight:700;color:var(--nc-text);">{{ a.nome }}</p>
         {% if desbloqueado %}

@@ -21,6 +21,10 @@
   {% endif %}
   {# [TEMA] cada tema é um CSS isolado (static/tema_<id>.css); o padrão não carrega nada a mais.
      tema_ativo já vem validado contra o catálogo TEMAS no app.py #}
+  {% if mascote_ativo %}
+  {# versão imersiva da tela inicial e da agenda: vale para todos os temas, inclusive o padrão #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='temas_comum.css') }}">
+  {% endif %}
   {% if tema_ativo and tema_ativo != 'padrao' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='tema_' ~ tema_ativo ~ '.css') }}">
   {% endif %}
@@ -57,14 +61,16 @@
   </div>
 
   {% if mascote_ativo %}
-    {% if pagina != 'assistente' %}
+    {# no assistente o mascote é o avatar das mensagens; na tela inicial IMERSIVA ele fica dentro do cartão de boas-vindas;
+       na tela inicial CLÁSSICA (a original) ele continua flutuando no canto #}
+    {% if pagina != 'assistente' and not (pagina == 'dashboard' and tema_semana) %}
     <div class="nc-mascote-dock{{ ' acima-do-fab' if pagina in ('tarefas', 'rotina', 'objetivos') else '' }}">
       {% include "partials/mascote.html" %}
     </div>
     {% endif %}
     <script>
       window.NC_EVENTOS_INICIAIS = {{ (mascote_eventos or []) | tojson }};
-      window.NC_SAUDACAO_DADOS = {{ ({'pendentes': total - concluidas} if pagina == 'dashboard' and total is defined else {})|tojson }};
+      window.NC_SAUDACAO_DADOS = {{ ({'pendentes': total - concluidas, 'total': total} if pagina == 'dashboard' and total is defined else {})|tojson }};
     </script>
     <script src="{{ url_for('static', filename='mascote_robo.js') }}" defer></script>
   {% endif %}

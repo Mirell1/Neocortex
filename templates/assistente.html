@@ -40,6 +40,22 @@
     background: linear-gradient(135deg, #2563EB, #7C3AED); display: flex; align-items: center; justify-content: center;
   }
   .chat-avatar-usuario { font-weight: 800; font-size: 13px; }
+
+  /* [VOZ] botão de ditado e linha de status (o estado "ouvindo" muda o ÍCONE e o TEXTO, não só a cor) */
+  .nc-voz { position: relative; width: 44px; height: 44px; border-radius: 12px; padding: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+            border: 1.5px solid var(--nc-border); background: var(--nc-surface); color: var(--nc-text); cursor: pointer; }
+  .nc-voz[hidden] { display: none; }
+  .nc-voz:hover { border-color: var(--tema-destaque, #7C3AED); }
+  .nc-voz:focus-visible { outline: 3px solid var(--tema-destaque, #7C3AED); outline-offset: 2px; }
+  .nc-voz:disabled { opacity: 0.5; cursor: default; }
+  .nc-voz .ico-parar { display: none; }
+  .nc-voz.ouvindo { background: var(--tema-selo-fundo, #EDE9FE); color: var(--tema-selo-texto, #4C1D95); border-color: var(--tema-selo-texto, #4C1D95); }
+  .nc-voz.ouvindo .ico-mic { display: none; }
+  .nc-voz.ouvindo .ico-parar { display: block; }
+  .nc-voz.ouvindo::after { content: ""; position: absolute; inset: -6px; border-radius: 16px; border: 2px solid var(--tema-selo-texto, #4C1D95); opacity: 0.5; animation: nc-voz-pulso 1.4s ease-out infinite; }
+  .nc-voz-status { margin: 0; padding: 0 32px 8px; min-height: 22px; font-size: 12px; font-weight: 600; color: var(--nc-text2); }
+  @keyframes nc-voz-pulso { from { transform: scale(0.9); opacity: 0.6; } to { transform: scale(1.18); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .nc-voz.ouvindo::after { animation: none; } }
 </style>
 
 {# [MASCOTE] [PERSONALIZAR] avatar do assistente: mascote vivo na última mensagem, parado no histórico,
@@ -99,18 +115,36 @@
     {% endfor %}
   </div>
 
-  <form method="POST" action="{{ url_for('enviar_mensagem') }}" class="form-chat"
+  {# [VOZ] linha de status do ditado (leitores de tela anunciam as mudanças); fica vazia se o navegador não suporta voz #}
+  <p id="vozStatus" class="nc-voz-status" role="status" aria-live="polite"></p>
+
+  <form id="formChat" method="POST" action="{{ url_for('enviar_mensagem') }}" class="form-chat"
     style="padding:16px 32px 28px;border-top:1px solid var(--nc-border);background:var(--nc-surface);display:flex;gap:12px;align-items:flex-end;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input name="mensagem" class="nc-input" placeholder="Escreva uma mensagem..." required style="flex:1;" maxlength="1000">
+    <input id="campoMensagem" name="mensagem" class="nc-input" placeholder="Escreva uma mensagem..." required style="flex:1;" maxlength="1000">
+    {# [VOZ] começa escondido: o script só o mostra se o navegador suportar ditado (e em https/localhost) #}
+    <button type="button" id="btnVoz" class="nc-voz" hidden aria-pressed="false" aria-label="Falar em vez de digitar" title="Falar em vez de digitar">
+      <svg class="ico-mic" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4z" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <svg class="ico-parar" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/></svg>
+    </button>
     <button type="submit" class="btn-primary" style="width:44px;height:44px;border-radius:12px;padding:0;">↑</button>
   </form>
 </div>
+
+<script src="{{ url_for('static', filename='voz_chat.js') }}"></script>
 
 <script>
   (function () {
     const lista = document.getElementById('chatMensagens');
     lista.scrollTop = lista.scrollHeight;   // abre já na mensagem mais recente
+
+    // [VOZ] ditado por voz no campo principal (o botão só aparece se o navegador suportar)
+    if (window.NCVoz) {
+      window.NCVoz.iniciar({
+        botao: document.getElementById('btnVoz'), campo: document.getElementById('campoMensagem'),
+        status: document.getElementById('vozStatus'), form: document.getElementById('formChat'),
+      });
+    }
 
     // [MASCOTE] enquanto o servidor espera a IA, mostra a mensagem enviada e o mascote pensando.
     // Não cancela o envio: a página continua visível até a resposta chegar e recarregar.

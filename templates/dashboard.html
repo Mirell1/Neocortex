@@ -52,7 +52,7 @@
     <section class="nc-card nc-inicio-placar" aria-label="{{ T.placar }}">
       <p class="rotulo">{{ T.placar }}</p>
       <p class="numero">{{ concluidas }} <span>de {{ total }} {{ 'concluída' if total == 1 else 'concluídas' }}</span></p>
-      <div class="barra" role="img" aria-label="{{ concluidas }} de {{ total }} tarefas concluídas"><span style="width:{{ pct }}%;"></span></div>
+      <div class="barra" role="img" aria-label="{{ concluidas }} de {{ total }} tarefas concluídas"><span data-anima-barra style="width:{{ pct }}%;"></span></div>
       <p class="nota">{{ T.nota }}</p>
     </section>
   </div>

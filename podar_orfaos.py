@@ -231,7 +231,7 @@ def achar_quebradas(todos):
         if not texto:
             continue
         if rel.endswith(".py") and "/" not in rel and not Path(rel).name.startswith("test_"):
-            for nome in re.findall(r"render_template\(\s*['\"]([\w./ -]+)['\"]", texto):
+            for nome in re.findall(r"(?:render_template|get_template)\(\s*['\"]([\w./ -]+)['\"]", texto):
                 if nome not in tpls:
                     achados[f"templates/{nome}"].add(rel)
         if rel.startswith("templates/"):

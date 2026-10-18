@@ -16,11 +16,11 @@
             </p>
             {% if fragmentos %}
             <div style="height:5px;border-radius:3px;background:var(--nc-border);margin-top:8px;max-width:260px;">
-              <div style="height:100%;border-radius:3px;background:linear-gradient(90deg,#2563EB,#7C3AED);width:{{ (concluidos / fragmentos|length * 100)|round|int }}%;"></div>
+              <div data-anima-barra style="height:100%;border-radius:3px;background:linear-gradient(90deg,#2563EB,#7C3AED);width:{{ (concluidos / fragmentos|length * 100)|round|int }}%;"></div>
             </div>
             {% endif %}
           </div>
-          <span class="badge" style="background:{{ '#22C55E18' if o.status == 'concluido' else '#2563EB18' }};color:{{ '#22C55E' if o.status == 'concluido' else '#2563EB' }};">{{ o.status }}</span>
+          <span class="badge" style="background:{{ '#22C55E18' if o.status == 'concluido' else '#2563EB18' }};color:{{ '#22C55E' if o.status == 'concluido' else '#2563EB' }};">{{ o.status|status_legivel }}</span>
           <button type="button" onclick="document.getElementById('fragmentos{{ o.id_objetivo }}').classList.toggle('hidden')" class="btn-ghost-sm">Fragmentos</button>
           <button type="button" onclick="document.getElementById('modalEditarObjetivo{{ o.id_objetivo }}').classList.remove('hidden')" style="background:none;border:none;color:var(--nc-text2);font-size:15px;cursor:pointer;">✎</button>
           {% if o.status != 'concluido' %}

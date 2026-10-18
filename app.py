@@ -8,21 +8,26 @@ a IA consulta).
 """
 
 import json
+import math
 import os
+import time
 import calendar as calendario_lib
 from functools import wraps
 from datetime import date, datetime, timedelta
 
 
 import bcrypt
-from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, jsonify, make_response, redirect, render_template, request, send_from_directory, session, url_for
 from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import agenda
 import ai
 import db
 import servicos
 import decisao
+import seguranca
 
 import markdown as markdown_lib
 import bleach
@@ -38,6 +43,18 @@ app.config.update(
 )
 
 csrf = CSRFProtect(app)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024    # [SEGURANÇA] nenhuma tela envia arquivo: recusa corpos grandes (erro 413)
+
+# [SEGURANÇA] Atrás de um proxy (ex.: Render) o IP real vem em X-Forwarded-For. Só confiamos nesse cabeçalho com NEOCORTEX_PROXY=1:
+# sem o proxy, qualquer pessoa poderia forjá-lo e escapar do limite de tentativas de login.
+if os.getenv("NEOCORTEX_PROXY", "0") == "1":
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
+# [SEGURANÇA] Limite de tentativas de login (janela de 15 minutos): por conta+IP e, mais folgado, por IP (quem testa várias contas).
+LOGIN_MAX_TENTATIVAS = int(os.getenv("LOGIN_MAX_TENTATIVAS", "5"))
+LOGIN_ATRASO_MINIMO = float(os.getenv("LOGIN_ATRASO_MINIMO", "0.4"))   # toda falha demora pelo menos isso (esconde se o e-mail existe)
+LIMITE_LOGIN = seguranca.LimiteTentativas(maximo=LOGIN_MAX_TENTATIVAS, janela=900)
+LIMITE_LOGIN_IP = seguranca.LimiteTentativas(maximo=4 * LOGIN_MAX_TENTATIVAS, janela=900)
 
 # Conflito de agenda na tela:
 #   confirmar (padrão) = mostra o conflito e só salva se o usuário confirmar (igual à IA)
@@ -135,6 +152,73 @@ app.jinja_env.globals["status_visual"] = status_visual
 def usuario_logado():
     """Devolve o id do usuário logado, ou None se ninguém estiver logado."""
     return session.get("id_usuario")
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """Ícone da aba. Rota PÚBLICA: o navegador pede /favicon.ico sozinho, inclusive nas telas de login e cadastro."""
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon", max_age=86400)
+
+
+# status como o usuário lê: "em_andamento" -> "em andamento". Uso nos templates: {{ objetivo.status|status_legivel }}
+STATUS_LEGIVEL = {
+    "em_andamento": "em andamento", "concluido": "concluído", "concluida": "concluída", "pausado": "pausado", "pausada": "pausada",
+    "cancelado": "cancelado", "cancelada": "cancelada", "pendente": "pendente",
+}
+
+
+@app.template_filter("status_legivel")
+def status_legivel(valor):
+    texto = "" if valor is None else str(valor)
+    return STATUS_LEGIVEL.get(texto, texto.replace("_", " "))
+
+
+@app.after_request
+def _cabecalhos_de_seguranca(resposta):
+    return seguranca.aplicar_cabecalhos(resposta, https=app.config["SESSION_COOKIE_SECURE"], endpoint=request.endpoint)
+
+
+def _quer_json():
+    return request.path.startswith("/api/") or request.is_json or request.accept_mimetypes.best == "application/json"
+
+
+def _pagina_de_erro(codigo, titulo, mensagem):
+    """Erro amigável, sem detalhe técnico. Renderiza sem os context processors: eles consultam o banco e o erro pode ser o próprio banco."""
+    if _quer_json():
+        return jsonify({"erro": mensagem}), codigo
+    destino = url_for("dashboard") if usuario_logado() else url_for("tela_login")
+    html = app.jinja_env.get_template("erro.html").render(codigo=codigo, titulo=titulo, mensagem=mensagem, destino=destino)
+    return make_response(html, codigo)
+
+
+@app.errorhandler(404)
+def _erro_404(_e):
+    return _pagina_de_erro(404, "Página não encontrada", "O endereço que você abriu não existe ou foi movido.")
+
+
+@app.errorhandler(405)
+def _erro_405(_e):
+    return _pagina_de_erro(405, "Ação não permitida", "Esse endereço não aceita esse tipo de acesso.")
+
+
+@app.errorhandler(413)
+def _erro_413(_e):
+    return _pagina_de_erro(413, "Envio grande demais", "O que você enviou passou do tamanho permitido.")
+
+
+@app.errorhandler(429)
+def _erro_429(_e):
+    return _pagina_de_erro(429, "Muitas tentativas", "Aguarde um pouco e tente de novo.")
+
+
+@app.errorhandler(CSRFError)
+def _erro_csrf(_e):
+    return _pagina_de_erro(400, "Sua sessão de segurança expirou", "Volte, recarregue a página e tente de novo.")
+
+
+@app.errorhandler(500)
+def _erro_500(_e):
+    return _pagina_de_erro(500, "Algo deu errado do nosso lado", "O problema foi registrado. Tente de novo em instantes.")
 
 
 def login_obrigatorio(rota):
@@ -316,14 +400,26 @@ def tela_login():
     if request.method == "GET":
         return render_template("login.html", erro=None)
 
-    email = request.form.get("email", "").strip()
+    inicio = time.perf_counter()
+    email = request.form.get("email", "").strip()[:254]
     senha = request.form.get("senha", "")
 
     if not email or not senha:
         return render_template("login.html", erro="Preencha e-mail e senha.")
 
-    usuario = db.verificar_login(email, senha)
+    ip = request.remote_addr or "desconhecido"
+    chave_da_conta, chave_do_ip = seguranca.chave_conta(ip, email), f"ip:{ip}"
+    espera = max(LIMITE_LOGIN.espera(chave_da_conta), LIMITE_LOGIN_IP.espera(chave_do_ip))
+    if espera:   # bloqueado: nem consulta o banco nem confere a senha (vale mesmo que ela esteja certa)
+        minutos = max(1, math.ceil(espera / 60))
+        resposta = make_response(render_template("login.html", erro=f"Muitas tentativas seguidas. Aguarde {minutos} minuto(s) e tente de novo."), 429)
+        resposta.headers["Retry-After"] = str(espera)
+        return resposta
+
+    # o bcrypt só aceita até 72 bytes: acima disso não pode ser a senha de ninguém (e não deve virar erro 500)
+    usuario = db.verificar_login(email, senha) if len(senha.encode("utf-8")) <= seguranca.SENHA_MAX_BYTES else None
     if usuario:
+        LIMITE_LOGIN.limpar(chave_da_conta)   # acertou: zera os erros dessa conta (o contador do IP continua)
         session.clear()   # não reaproveita sessão anterior
         session["id_usuario"] = usuario["id_usuario"]
         session["nome"] = usuario["nome"]
@@ -333,6 +429,11 @@ def tela_login():
             app.logger.exception("Falha na limpeza de retenção (não bloqueia o login)")
         return redirect(url_for("tarefas"))
 
+    LIMITE_LOGIN.registrar_falha(chave_da_conta)
+    LIMITE_LOGIN_IP.registrar_falha(chave_do_ip)
+    sobra = LOGIN_ATRASO_MINIMO - (time.perf_counter() - inicio)
+    if sobra > 0:
+        time.sleep(sobra)   # e-mail inexistente (sem bcrypt) e senha errada (com bcrypt) passam a demorar parecido
     return render_template("login.html", erro="E-mail ou senha errados.")
 
 
@@ -386,8 +487,8 @@ def cadastro_conta():
         erro = "Preencha e-mail e senha."
     elif senha != confirmar:
         erro = "As senhas não coincidem."
-    elif len(senha) < 6:
-        erro = "A senha precisa ter pelo menos 6 caracteres."
+    elif (problema_senha := seguranca.senha_valida(senha)):
+        erro = problema_senha
     elif db.email_existe(email):
         erro = "Já existe um usuário cadastrado com esse e-mail."
 
@@ -514,37 +615,6 @@ def cadastro_perfil():
     session["nome"] = dados_sessao["nome"]
 
     return jsonify({"redirect": url_for("cadastro_sucesso")})
-
-
-@app.route("/cadastro", methods=["POST"])
-def cadastro():
-    """Cadastro em uma única tela (formulário antigo, mantido por compatibilidade)."""
-    nome = request.form.get("nome", "").strip()
-    email = request.form.get("email", "").strip()
-    senha = request.form.get("senha", "")
-    hobbies_texto = request.form.get("hobbies", "")
-
-    faixa_etaria, trabalha, estuda, turno, erro = _ler_perfil(request.form)
-    if not erro and not all([nome, email, senha]):
-        erro = "Preencha todos os campos obrigatórios (nome, e-mail, senha, faixa etária e ocupação)."
-    elif not erro and len(senha) < 6:
-        erro = "A senha precisa ter pelo menos 6 caracteres."
-    if erro:
-        return render_template("auth.html", aba="cadastro", erro=erro)
-
-    try:
-        id_usuario = db.cadastrar_usuario(nome, email, senha, faixa_etaria, trabalha, estuda, turno)
-    except ValueError as e:
-        return render_template("auth.html", aba="cadastro", erro=str(e))
-
-    for hobby in hobbies_texto.split(","):
-        if hobby.strip():
-            db.associar_hobby(id_usuario, hobby)
-
-    session.clear()
-    session["id_usuario"] = id_usuario
-    session["nome"] = nome
-    return redirect(url_for("tarefas"))
 
 
 @app.route("/cadastro/sucesso")
@@ -1442,7 +1512,7 @@ def trocar_senha_rota():
     if not usuario or not bcrypt.checkpw(senha_atual.encode("utf-8"), usuario["senha_hash"].encode("utf-8")):
         return redirect(url_for("configuracoes", erro="senha_atual"))
 
-    if len(nova_senha) < 6:
+    if seguranca.senha_valida(nova_senha):
         return redirect(url_for("configuracoes", erro="senha_curta"))
 
     db.trocar_senha(usuario_logado(), nova_senha)
@@ -1525,9 +1595,8 @@ def injetar_acessibilidade():
     if not usuario_logado():
         return {}
     return {
-        "acess_fonte": db.buscar_preferencia(usuario_logado(), "acess_fonte") or "normal",
-        "acess_contraste": db.buscar_preferencia(usuario_logado(), "acess_contraste") or "normal",
-        "acess_tipografia": db.buscar_preferencia(usuario_logado(), "acess_tipografia") or "padrao",
+        chave: seguranca.acessibilidade_valida(chave, db.buscar_preferencia(usuario_logado(), chave))   # valor estranho vira o padrão
+        for chave in ("acess_fonte", "acess_contraste", "acess_tipografia")
     }
 
 
@@ -1540,7 +1609,7 @@ def salvar_acessibilidade():
         ("acess_tipografia", "acess_tipografia_oculto"),
     ):
         valor = request.form.get(campo)
-        if valor:
+        if valor in seguranca.ACESSIBILIDADE[chave]:   # [SEGURANÇA] só grava o que as telas oferecem
             db.salvar_preferencia(usuario_logado(), chave, valor)
     return redirect(url_for("configuracoes"))
 

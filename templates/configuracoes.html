@@ -6,7 +6,7 @@
     {% if request.args.get('erro') == 'senha_atual' %}
     <p style="color:#EF4444;font-size:13px;font-weight:700;">Senha atual incorreta.</p>
     {% elif request.args.get('erro') == 'senha_curta' %}
-    <p style="color:#EF4444;font-size:13px;font-weight:700;">A nova senha precisa ter pelo menos 6 caracteres.</p>
+    <p style="color:#EF4444;font-size:13px;font-weight:700;">A nova senha precisa ter pelo menos 8 caracteres (e no máximo 72 bytes).</p>
     {% elif request.args.get('sucesso') == 'senha' %}
     <p style="color:#22C55E;font-size:13px;font-weight:700;">Senha alterada com sucesso!</p>
     {% endif %}
@@ -30,7 +30,7 @@
         <p style="margin:0;font-size:13px;font-weight:700;color:var(--nc-text2);">{{ mascote_pontos }} pontos</p>
       </div>
       <div style="height:8px;border-radius:4px;background:var(--nc-border);margin-bottom:8px;">
-        <div style="height:100%;border-radius:4px;background:linear-gradient(90deg,#2563EB,#7C3AED);width:{{ mascote_progresso_pct }}%;"></div>
+        <div data-anima-barra style="height:100%;border-radius:4px;background:linear-gradient(90deg,#2563EB,#7C3AED);width:{{ mascote_progresso_pct }}%;"></div>
       </div>
       {% if mascote_proximo_nivel %}
       <p style="margin:0 0 18px;font-size:12px;font-weight:500;color:var(--nc-text2);">Faltam {{ mascote_proximo_nivel.pontos_min - mascote_pontos }} pontos para "{{ mascote_proximo_nivel.nome }}"</p>
@@ -222,7 +222,7 @@
   document.getElementById('rowSenha').addEventListener('click', function () {
     const atual = prompt('Digite sua senha atual:');
     if (atual === null) return;
-    const nova = prompt('Digite a nova senha (mínimo 6 caracteres):');
+    const nova = prompt('Digite a nova senha (mínimo 8 caracteres):');
     if (nova === null) return;
     document.getElementById('inputSenhaAtual').value = atual;
     document.getElementById('inputNovaSenha').value = nova;

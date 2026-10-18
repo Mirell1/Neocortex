@@ -168,7 +168,7 @@ sem_template = {}
 for py in sorted(RAIZ.glob("*.py")):
     if py.name.startswith("test_"):
         continue
-    for nome in re.findall(r"render_template\(\s*['\"]([\w./ -]+)['\"]", py.read_text(encoding="utf-8", errors="replace")):
+    for nome in re.findall(r"(?:render_template|get_template)\(\s*['\"]([\w./ -]+)['\"]", py.read_text(encoding="utf-8", errors="replace")):
         if nome not in existentes_tpl:
             sem_template.setdefault(nome, set()).add(py.name)
 for arq in sorted((RAIZ / "templates").rglob("*.html")):
@@ -181,6 +181,28 @@ checa("todo template citado (render_template, extends, include) existe em templa
 checa("todo url_for(...) dos templates aponta para uma rota que existe no app.py", not faltando,
       "; ".join(f"'{n}' (usada em {', '.join(sorted(a))})" for n, a in faltando.items()) +
       "  -> o template é mais novo que o app.py: copie também o app.py do mesmo pacote")
+
+# ------------------------------------------------------------------ segurança
+print("\nSegurança")
+checa("o seguranca.py existe e o app.py o usa", (RAIZ / "seguranca.py").exists() and contem(app, "import seguranca"), "copie o seguranca.py do pacote para a pasta do projeto")
+checa("o login tem limite de tentativas", contem(app, "LIMITE_LOGIN", "LIMITE_LOGIN_IP", "registrar_falha"))
+checa("cabeçalhos de segurança e páginas de erro registrados", contem(app, "after_request", "aplicar_cabecalhos", "errorhandler(404)", "errorhandler(500)"))
+gitignore = ler(".gitignore")
+checa("o .env está no .gitignore", gitignore is not None and re.search(r"(?m)^\s*/?\.env\s*$", gitignore) is not None, "acrescente a linha  .env  ao .gitignore")
+try:
+    import subprocess
+    rastreado = subprocess.run(["git", "ls-files", ".env"], capture_output=True, text=True, cwd=RAIZ)
+    if rastreado.returncode == 0:
+        checa("o .env NÃO está rastreado pelo Git", rastreado.stdout.strip() == "", "rode:  git rm --cached .env   (tira do Git sem apagar o arquivo da pasta)")
+except (OSError, ValueError):
+    print("  (git não encontrado: não consegui checar se o .env está rastreado)")
+exemplo = ler(".env.example")
+checa(".env.example existe", exemplo is not None, "copie o .env.example do pacote (modelo só com os nomes das variáveis)")
+if exemplo is not None:
+    permitidos = {"DB_PORT", "DB_NAME", "DB_SSLMODE"}
+    preenchidos = [m.group(1) for m in re.finditer(r"(?m)^[ \t]*([A-Z][A-Z0-9_]*)[ \t]*=[ \t]*(\S+)", exemplo)
+                   if m.group(1) not in permitidos and not m.group(2).startswith("#")]   # só olha a MESMA linha; valor vazio ou comentário não conta
+    checa(".env.example NÃO tem valores preenchidos (só os nomes)", not preenchidos, f"apague o valor destas linhas: {preenchidos}")
 
 # ------------------------------------------------------------------ templates
 print("\ntemplates (sintaxe Jinja)")

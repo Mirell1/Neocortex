@@ -528,6 +528,50 @@ FAIXA_ETARIA_ONBOARDING_PARA_DB = {
 }
 
 
+# [OBJETIVO v2] objetivos escritos no cadastro
+def _objetivos_do_onboarding(dados):
+    """Objetivos do cadastro: a pergunta "objetivo" ({titulo, detalhes, prazo, fragmentar} ou só texto) e/ou a lista "objetivos"
+    (textos ou dicionários). Limpa os textos, confere o prazo (de hoje até 10 anos) e fica com no máximo 5 válidos."""
+    brutos = []
+    if isinstance(dados.get("objetivo"), (str, dict)):
+        brutos.append(dados["objetivo"])
+    if isinstance(dados.get("objetivos"), list):
+        brutos.extend(dados["objetivos"])
+    hoje = date.today()
+    saida = []
+    for item in brutos[:50]:
+        if len(saida) == 5:
+            break
+        if isinstance(item, str):
+            item = {"titulo": item}
+        if not isinstance(item, dict):
+            continue
+        titulo = item.get("titulo")
+        titulo = " ".join(titulo.split())[:200] if isinstance(titulo, str) else ""
+        if not titulo:
+            continue
+        detalhes = item.get("detalhes", item.get("descricao"))
+        detalhes = detalhes.strip()[:500] if isinstance(detalhes, str) else ""
+        prazo = item.get("prazo")
+        try:
+            prazo = datetime.strptime(prazo, "%Y-%m-%d").date() if isinstance(prazo, str) else None
+        except ValueError:
+            prazo = None
+        if prazo and not (hoje <= prazo <= hoje + timedelta(days=3653)):
+            prazo = None
+        saida.append({"titulo": titulo, "descricao": detalhes or None, "prazo": prazo.isoformat() if prazo else None,
+                      "fragmentar": item.get("fragmentar") is True})
+    return saida
+
+
+def _criar_objetivo_do_cadastro(id_usuario, obj):
+    """Cria o objetivo. Se o banco desta versão não aceitar 'descricao', cria sem ela: o cadastro nunca quebra por isso."""
+    try:
+        return db.criar_objetivo(id_usuario, obj["titulo"], descricao=obj["descricao"], prazo=obj["prazo"])
+    except TypeError:
+        return db.criar_objetivo(id_usuario, obj["titulo"], prazo=obj["prazo"])
+
+
 @app.route("/cadastro/perfil", methods=["GET", "POST"])
 def cadastro_perfil():
     dados_sessao = session.get("cadastro") or {}
@@ -572,10 +616,11 @@ def cadastro_perfil():
             if dia_db:
                 db.adicionar_rotina(id_usuario, dia_db, "Estudo", horario_estudo["start"], horario_estudo["end"])
 
-    for obj in (dados.get("objetivos") or []):
-        titulo = (obj.get("titulo") or "").strip()
-        if titulo:
-            db.criar_objetivo(id_usuario, titulo, prazo=obj.get("prazo") or None)
+    id_para_fragmentar = None
+    for obj in _objetivos_do_onboarding(dados):
+        id_objetivo = _criar_objetivo_do_cadastro(id_usuario, obj)
+        if obj["fragmentar"] and id_para_fragmentar is None and id_objetivo:
+            id_para_fragmentar = id_objetivo
 
     for hobby in (dados.get("hobbies") or []):
         if hobby != "personalizado":
@@ -614,13 +659,18 @@ def cadastro_perfil():
     session["id_usuario"] = id_usuario
     session["nome"] = dados_sessao["nome"]
 
+    if id_para_fragmentar:   # pediu ajuda para dividir o objetivo em passos: a tela de Objetivos abre a prévia depois do cadastro
+        session["abrir_fragmentacao"] = id_para_fragmentar
+
     return jsonify({"redirect": url_for("cadastro_sucesso")})
 
 
 @app.route("/cadastro/sucesso")
 @login_obrigatorio
 def cadastro_sucesso():
-    return render_template("cadastro_sucesso.html")
+    pedido = session.get("abrir_fragmentacao")   # quem pediu ajuda com os passos do objetivo segue para a prévia
+    proximo = url_for("objetivos", fragmentar=pedido) if pedido else url_for("tarefas")
+    return render_template("cadastro_sucesso.html", proximo=proximo)
 
 
 @app.route("/logout")
@@ -926,10 +976,15 @@ def objetivos():
         return redirect(url_for("tela_login"))
     lista = db.listar_objetivos(usuario_logado())
     fragmentos = {o["id_objetivo"]: db.listar_fragmentos_objetivo(o["id_objetivo"], usuario_logado()) for o in lista}
+    # [ONBOARDING] pediu ajuda para dividir o objetivo em passos: abre a prévia uma vez (só se o objetivo é dela e ainda não tem passos)
+    pedido = request.args.get("fragmentar", type=int) or session.get("abrir_fragmentacao")
+    session.pop("abrir_fragmentacao", None)
+    abrir = next((o for o in lista if o["id_objetivo"] == pedido and not fragmentos[o["id_objetivo"]]), None) if pedido else None
     return render_template(
         "objetivos.html",
         objetivos=lista,
         db_fragmentos=fragmentos,
+        abrir_fragmentacao=abrir,
         **_pagina("objetivos", "Objetivos"),
     )
 

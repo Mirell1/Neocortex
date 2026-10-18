@@ -10,6 +10,7 @@
         <div style="display:flex;align-items:center;gap:16px;padding:18px 24px;">
           <div style="flex:1;min-width:0;">
             <p style="margin:0 0 2px;font-size:15px;font-weight:700;color:var(--nc-text);{{ 'text-decoration:line-through;opacity:0.5;' if o.status == 'concluido' else '' }}">{{ o.titulo }}</p>
+          {% if o.descricao %}<p style="margin:0 0 6px;font-size:13px;line-height:1.5;color:var(--nc-text2);white-space:pre-wrap;overflow-wrap:anywhere;">{{ o.descricao }}</p>{% endif %}
             <p style="margin:0;font-size:12px;font-weight:500;color:var(--nc-text2);">
               {% if o.prazo %}Prazo: {{ o.prazo.strftime('%d/%m/%Y') }} · {% endif %}
               {% if fragmentos %}{{ concluidos }}/{{ fragmentos|length }} fragmentos concluídos{% else %}Sem fragmentos ainda{% endif %}
@@ -229,4 +230,21 @@
     });
   }
 </script>
+{% if abrir_fragmentacao %}
+<script>
+  // [ONBOARDING] a pessoa pediu ajuda para dividir o objetivo em passos: abre a prévia uma vez
+  window.addEventListener('load', function () {
+    var id = {{ abrir_fragmentacao.id_objetivo|tojson }}, titulo = {{ abrir_fragmentacao.titulo|tojson }};
+    abrirFragmentacaoAutomatica(id, titulo);
+    var h = document.querySelector('#fragAutoPerguntas h3');
+    if (h) {
+      var p = document.createElement('p');
+      p.style.cssText = 'margin:-8px 0 16px;font-size:14px;line-height:1.5;color:var(--nc-text2);';
+      p.textContent = 'Vamos dividir \u201c' + titulo + '\u201d em passos pequenos. Escolha como você prefere:';
+      h.insertAdjacentElement('afterend', p);
+    }
+    if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);   // atualizar a página não reabre
+  });
+</script>
+{% endif %}
 {% endblock %}

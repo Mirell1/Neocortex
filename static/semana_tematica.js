@@ -38,10 +38,10 @@
     };
     if (info.futuro) {
       info.estado = t ? 'planejado' : 'livre';
-      info.resumo = t ? plural(t, 'planejada', 'planejadas') : 'livre';
+      info.resumo = t ? plural(t, 'planejada', 'planejadas') : 'sem tarefas';
       info.nivel = 0;
     } else if (!t) {
-      info.estado = 'livre'; info.resumo = 'livre'; info.nivel = 0;
+      info.estado = 'livre'; info.resumo = 'sem tarefas'; info.nivel = 0;
     } else {
       info.estado = info.hoje ? 'hoje' : (c === t ? 'feito' : (c ? 'parcial' : 'aberto'));
       info.resumo = c + ' de ' + t;
@@ -51,10 +51,10 @@
   }
 
   const ROTULOS = {
-    papelaria: { feito: 'feito', parcial: 'em andamento', hoje: 'hoje', aberto: 'em aberto', planejado: 'planejado', livre: 'livre' },
-    padrao: { feito: 'dia conectado ✓', parcial: 'em andamento', hoje: 'hoje', aberto: 'em aberto', planejado: 'planejado', livre: 'livre' },
-    cafeteria: { feito: 'cheia', parcial: 'pela metade', hoje: 'hoje', aberto: 'em aberto', planejado: 'a preparar', livre: 'livre' },
-    campeonato: { feito: 'concluído', parcial: 'em andamento', hoje: 'hoje', aberto: 'em aberto', planejado: 'escalado', livre: 'livre' },
+    papelaria: { feito: 'feito', parcial: 'em andamento', hoje: 'hoje', aberto: 'em aberto', planejado: 'planejado', livre: 'sem tarefas' },
+    padrao: { feito: 'dia conectado ✓', parcial: 'em andamento', hoje: 'hoje', aberto: 'em aberto', planejado: 'planejado', livre: 'sem tarefas' },
+    cafeteria: { feito: 'cheia', parcial: 'pela metade', hoje: 'hoje', aberto: 'em aberto', planejado: 'a preparar', livre: 'sem tarefas' },
+    campeonato: { feito: 'concluído', parcial: 'em andamento', hoje: 'hoje', aberto: 'em aberto', planejado: 'escalado', livre: 'sem tarefas' },
   };
 
   function rotuloAcessivel(i, tema) {

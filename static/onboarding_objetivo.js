@@ -3,14 +3,20 @@
  *
  * Passo OPCIONAL de objetivo do onboarding, carregado DEPOIS do onboarding.js:
  *   - sugestões prontas a partir das áreas que a pessoa escolheu ("O que você gostaria de organizar melhor?")
- *   - título curto (até 80 caracteres), detalhes (até 300, opcional) e prazo (opcional)
- *   - opção "quero ajuda para dividir em passos": depois do cadastro, a tela de Objetivos abre a prévia dos passos
+ *   - título curto (até 80 caracteres) e detalhes (até 300, opcional)
+ *   - opção "quero ajuda para dividir em passos": depois do cadastro, a tela de Objetivos abre a prévia dos passos e
+ *     PERGUNTA o prazo ali (na janela "Duas perguntas rápidas"), para aliviar o onboarding
  *
  * Ele se liga ao fluxo em tempo de execução (cria a pergunta "objetivo" antes da "personalizacao", ajusta o contador e
  * desenha o próprio formulário), então o onboarding.js não precisa ser editado. Se a equipe preferir, este conteúdo pode
  * ser movido para dentro do onboarding.js.
  *
- * Resposta guardada em state.answers.objetivo:  { titulo, detalhes, prazo, fragmentar }  (só as chaves preenchidas)
+ * PASSO ANTIGO: se o fluxo tiver o passo "Quais objetivos você quer alcançar?" (tipo lista_objetivos, id "objetivos"), este módulo o
+ * RETIRA do fluxo, porque o passo novo cobre o mesmo assunto. O passo antigo só guardava o objetivo se a pessoa clicasse em
+ * "+ Adicionar objetivo"; quem digitava e apertava Continuar perdia o texto. Para MANTER o passo antigo, troque
+ * REMOVER_PASSO_ANTIGO para false logo abaixo (os dois ficam no fluxo).
+ *
+ * Resposta guardada em state.answers.objetivo:  { titulo, detalhes, fragmentar }  (só as chaves preenchidas)
  */
 (function () {
   'use strict';
@@ -21,9 +27,9 @@
   }
   window.__ncObjetivoOnboarding = true;
 
+  var REMOVER_PASSO_ANTIGO = true;
   var MAX_TITULO = 80;
   var MAX_DETALHES = 300;
-  var ANOS_MAX = 10;
 
   // Ideias por área (os valores são os da pergunta "areas_melhoria"). Títulos curtos, no jeito de um objetivo de verdade.
   var SUGESTOES = {
@@ -44,9 +50,26 @@
     next: onboardingFlow.personalizacao ? 'personalizacao' : 'fim'
   };
 
+  // retira o passo antigo (lista de objetivos) e faz quem apontava para ele apontar para o passo novo
+  var relinkadasDoAntigo = 0;
+  if (REMOVER_PASSO_ANTIGO && onboardingFlow.objetivos && onboardingFlow.objetivos.type === 'lista_objetivos') {
+    Object.keys(onboardingFlow).forEach(function (id) {
+      if (id === 'objetivos' || id === 'objetivo') return;
+      var q = onboardingFlow[id];
+      if (q.next === 'objetivos') { q.next = 'objetivo'; relinkadasDoAntigo += 1; }
+      if (q.nextByValue) Object.keys(q.nextByValue).forEach(function (v) { if (q.nextByValue[v] === 'objetivos') { q.nextByValue[v] = 'objetivo'; relinkadasDoAntigo += 1; } });
+      (q.options || []).forEach(function (o) { if (o.next === 'objetivos') { o.next = 'objetivo'; relinkadasDoAntigo += 1; } });
+    });
+    delete onboardingFlow.objetivos;
+    if (typeof progressSequence !== 'undefined') { var pos0; while ((pos0 = progressSequence.indexOf('objetivos')) >= 0) progressSequence.splice(pos0, 1); }
+    delete state.answers.objetivos;                                              // sobra de um cadastro anterior no mesmo navegador
+    if (Array.isArray(state.history)) state.history = state.history.filter(function (id) { return id !== 'objetivos'; });
+    if (state.currentQuestionId === 'objetivos') state.currentQuestionId = 'objetivo';
+  }
+
   (function ligar() {
     var destino = onboardingFlow.objetivo.next;
-    var ligadas = 0;
+    var ligadas = relinkadasDoAntigo;
     Object.keys(onboardingFlow).forEach(function (id) {
       if (id === 'objetivo') return;
       var q = onboardingFlow[id];
@@ -75,9 +98,8 @@
     '.onb-obj label.onb-obj-label { font-size: 14px; font-weight: 700; color: var(--onb-text, #0F172A); }',
     '.onb-obj-opcional { font-weight: 500; color: var(--onb-muted, #64748B); }',
     '.onb-obj-contador { font-size: 12px; font-weight: 600; color: var(--onb-muted, #64748B); }',
-    '.onb-obj input[type="text"], .onb-obj input[type="date"], .onb-obj textarea { display: block; width: 100%; box-sizing: border-box; padding: 12px 14px;',
+    '.onb-obj input[type="text"], .onb-obj textarea { display: block; width: 100%; box-sizing: border-box; padding: 12px 14px;',
     '  border: 1.5px solid var(--onb-border, #E2E5EC); border-radius: 12px; background: var(--onb-surface, #FFFFFF); color: var(--onb-text, #0F172A); font: inherit; font-size: 15px; }',
-    '.onb-obj input[type="date"] { max-width: 220px; }',
     '.onb-obj textarea { min-height: 84px; resize: vertical; line-height: 1.5; }',
     '.onb-obj input:focus-visible, .onb-obj textarea:focus-visible { outline: none; border-color: var(--onb-blue, #2563EB); box-shadow: 0 0 0 3px rgba(37,99,235,.18); }',
     '.onb-obj-chip:focus-visible, .onb-obj-check:focus-within { outline: 3px solid rgba(37,99,235,.35); outline-offset: 2px; }',
@@ -86,8 +108,7 @@
     '.onb-obj-check strong { display: block; font-size: 15px; color: var(--onb-text, #0F172A); }',
     '.onb-obj-check small { display: block; margin-top: 4px; font-size: 13px; line-height: 1.45; font-weight: 500; color: var(--onb-muted, #64748B); }',
     '.onb-obj-aviso { margin: 0; min-height: 20px; font-size: 13px; font-weight: 600; color: #B45309; }',
-    '.onb-obj-aviso.info { color: var(--onb-muted, #64748B); }',
-    '@media (max-width: 560px) { .onb-obj input[type="date"] { max-width: none; } }'
+    '.onb-obj-aviso.info { color: var(--onb-muted, #64748B); }'
   ].join('\n');
   var estilo = document.createElement('style');
   estilo.setAttribute('data-onb-objetivo', '');
@@ -95,10 +116,17 @@
   document.head.appendChild(estilo);
 
   // ---------------------------------------------------------------- utilitários
-  function doisDigitos(n) { return (n < 10 ? '0' : '') + n; }
-  function dataLocal(d) { return d.getFullYear() + '-' + doisDigitos(d.getMonth() + 1) + '-' + doisDigitos(d.getDate()); }   // local, não UTC (à noite, UTC já é "amanhã")
-  function hoje() { return dataLocal(new Date()); }
-  function limite() { var d = new Date(); d.setFullYear(d.getFullYear() + ANOS_MAX); return dataLocal(d); }
+  var NOMES_AREAS = { estudos: 'estudos', trabalho: 'trabalho', vida_pessoal: 'vida pessoal' };
+
+  // "estudos, trabalho e vida pessoal": deixa visível de onde vêm as ideias (da pergunta "O que você gostaria de organizar melhor?")
+  function textoDasAreas() {
+    var areas = state.answers && state.answers.areas_melhoria;
+    if (!Array.isArray(areas)) return '';
+    var nomes = areas.filter(function (a) { return NOMES_AREAS[a]; }).map(function (a) { return NOMES_AREAS[a]; });
+    if (!nomes.length) return '';
+    var ultimo = nomes.pop();
+    return nomes.length ? nomes.join(', ') + ' e ' + ultimo : ultimo;
+  }
 
   function sugestoesDasAreas() {
     var areas = state.answers && state.answers.areas_melhoria;
@@ -132,7 +160,8 @@
     var chips = [];
     if (sugestoes.length) {
       var bloco = criar('div');
-      bloco.appendChild(criar('p', { 'class': 'onb-obj-rotulo', id: 'onbObjSugRotulo' }, 'Ideias para começar (toque para usar)'));
+      var areasTxt = textoDasAreas();
+      bloco.appendChild(criar('p', { 'class': 'onb-obj-rotulo', id: 'onbObjSugRotulo' }, areasTxt ? 'Ideias para ' + areasTxt + ' (toque para usar)' : 'Ideias para começar (toque para usar)'));
       var grupo = criar('div', { 'class': 'onb-obj-chips', role: 'group', 'aria-labelledby': 'onbObjSugRotulo' });
       sugestoes.forEach(function (texto) {
         var chip = criar('button', { type: 'button', 'class': 'onb-obj-chip', 'aria-pressed': 'false' }, texto);
@@ -159,19 +188,11 @@
     var detalhes = criar('textarea', { id: 'onbObjDetalhes', rows: '3', maxlength: String(MAX_DETALHES), placeholder: 'Pode escrever do seu jeito: por que isso importa agora, o que costuma travar…' });
     campoDet.appendChild(cabecaD); campoDet.appendChild(detalhes); raiz.appendChild(campoDet);
 
-    var campoPrazo = criar('div');
-    var cabecaP = criar('div', { 'class': 'onb-obj-cabeca' });
-    var rotP = criar('label', { 'class': 'onb-obj-label', 'for': 'onbObjPrazo' }, 'Até quando? ');
-    rotP.appendChild(criar('span', { 'class': 'onb-obj-opcional' }, '(opcional)'));
-    cabecaP.appendChild(rotP);
-    var prazo = criar('input', { type: 'date', id: 'onbObjPrazo', min: hoje(), max: limite() });
-    campoPrazo.appendChild(cabecaP); campoPrazo.appendChild(prazo); raiz.appendChild(campoPrazo);
-
     var rotuloCheck = criar('label', { 'class': 'onb-obj-check' });
     var fragmentar = criar('input', { type: 'checkbox', id: 'onbObjFragmentar', 'aria-describedby': 'onbObjFragDica' });
     var textoCheck = criar('span');
     textoCheck.appendChild(criar('strong', {}, 'Quero ajuda para dividir em passos pequenos'));
-    textoCheck.appendChild(criar('small', { id: 'onbObjFragDica' }, 'Depois do cadastro, eu mostro uma sugestão de passos para você revisar antes de salvar.'));
+    textoCheck.appendChild(criar('small', { id: 'onbObjFragDica' }, 'Depois do cadastro, eu pergunto até quando e mostro uma sugestão de passos para você revisar antes de salvar.'));
     rotuloCheck.appendChild(fragmentar); rotuloCheck.appendChild(textoCheck); raiz.appendChild(rotuloCheck);
 
     var aviso = criar('p', { 'class': 'onb-obj-aviso', id: 'onbObjAviso', role: 'status', 'aria-live': 'polite' });
@@ -179,13 +200,11 @@
 
     titulo.value = typeof anterior.titulo === 'string' ? anterior.titulo.slice(0, MAX_TITULO) : '';
     detalhes.value = typeof anterior.detalhes === 'string' ? anterior.detalhes.slice(0, MAX_DETALHES) : '';
-    prazo.value = typeof anterior.prazo === 'string' ? anterior.prazo : '';
     fragmentar.checked = anterior.fragmentar === true;
 
     function atualizar(origem) {
       var t = titulo.value.replace(/\s+/g, ' ').trim();
       var d = detalhes.value.trim();
-      var p = prazo.value;
       var f = fragmentar.checked;
       contador.textContent = titulo.value.length + '/' + MAX_TITULO;
       chips.forEach(function (c) { c.setAttribute('aria-pressed', c.textContent === t ? 'true' : 'false'); });
@@ -193,19 +212,15 @@
       var resposta = {};
       if (t) resposta.titulo = t;
       if (d) resposta.detalhes = d;
-      if (p) resposta.prazo = p;
       if (f) resposta.fragmentar = true;
       if (Object.keys(resposta).length) state.answers.objetivo = resposta; else delete state.answers.objetivo;
       if (typeof saveState === 'function') saveState();
 
       var problema = '';
-      if (p && (p < hoje() || p > limite())) problema = 'Escolha uma data de hoje em diante.';
-      else if (!t && (d || p || f)) problema = 'Escreva o título curto para guardar o objetivo (ou apague os outros campos para pular).';
+      if (!t && (d || f)) problema = 'Escreva o título curto para guardar o objetivo (ou apague os outros campos para pular).';
 
-      var info = '';
-      if (!problema && f && !p) info = 'Sem prazo, eu sugiro 4 passos. Com um prazo, eles se distribuem até a data.';
-      aviso.textContent = problema || info;
-      aviso.className = 'onb-obj-aviso' + (problema ? '' : ' info');
+      aviso.textContent = problema;
+      aviso.className = 'onb-obj-aviso';
 
       if (origem !== 'montagem' || problema) {
         els.continue.disabled = Boolean(problema);
@@ -223,8 +238,7 @@
         aviso.className = 'onb-obj-aviso info';
       });
     });
-    [titulo, detalhes, prazo].forEach(function (c) { c.addEventListener('input', function () { atualizar('digitando'); }); });
-    prazo.addEventListener('change', function () { atualizar('digitando'); });
+    [titulo, detalhes].forEach(function (c) { c.addEventListener('input', function () { atualizar('digitando'); }); });
     fragmentar.addEventListener('change', function () { atualizar('digitando'); });
 
     els.custom.appendChild(raiz);

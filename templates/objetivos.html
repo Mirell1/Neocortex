@@ -42,7 +42,7 @@
         </div>
 
         <div id="fragmentos{{ o.id_objetivo }}" class="hidden" style="border-top:1px solid var(--nc-border);padding:16px 24px;background:var(--nc-bg);">
-          <button type="button" class="btn-outline" onclick="abrirFragmentacaoAutomatica({{ o.id_objetivo }}, '{{ o.titulo|e }}')" style="width:100%;height:40px;margin-bottom:14px;">✨ Fragmentar automaticamente</button>
+          <button type="button" class="btn-outline" onclick='abrirFragmentacaoAutomatica({{ o.id_objetivo }}, {{ o.titulo|tojson }}, {{ (o.prazo is not none)|tojson }})' style="width:100%;height:40px;margin-bottom:14px;">✨ Fragmentar automaticamente</button>
 
           {% for f in fragmentos %}
             <div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
@@ -101,6 +101,12 @@
   </div>
 </div>
 
+<style>
+  /* [CHIPS] a opção marcada se destaca além da cor: borda mais grossa e um ✓ antes do texto */
+  [data-chip-group] .chip.active { border-width: 2px; }
+  [data-chip-group] .chip.active::before { content: "\2713\00a0"; }
+  [data-chip-group] .chip:focus-visible { outline: 3px solid #2563EB; outline-offset: 2px; }
+</style>
 <div id="modalFragAuto" class="modal-overlay hidden">
   <div class="modal-box" style="max-width:480px;">
     <div id="fragAutoPerguntas">
@@ -122,6 +128,11 @@
           <button type="button" class="chip" data-value="moderado">Moderado</button>
         </div>
       </div>
+      <div id="fragAutoPrazoBloco" class="hidden" style="margin-bottom:20px;">
+        <label class="nc-label" for="fragAutoPrazo">Até quando? <span style="font-weight:500;color:var(--nc-text2);">(opcional)</span></label>
+        <input id="fragAutoPrazo" type="date" class="nc-input" style="max-width:220px;" aria-describedby="fragAutoPrazoDica">
+        <p id="fragAutoPrazoDica" style="margin:8px 0 0;font-size:13px;line-height:1.45;color:var(--nc-text2);">Sem prazo, eu sugiro 4 passos. Com um prazo, eles se distribuem até a data.</p>
+      </div>
       <button type="button" id="btnGerarFragmentos" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Gerar sugestão</button>
       <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalFragAuto').classList.add('hidden')">Cancelar</button>
     </div>
@@ -132,12 +143,42 @@
 <script>
   let fragAutoContexto = null; // { tipo: 'existente', idObjetivo } | { tipo: 'novo', titulo, prazo }
 
-  function abrirFragmentacaoAutomatica(idObjetivo, titulo) {
+  // [CHIPS] foco e ritmo: uma opção marcada por grupo, com o padrão já marcado (Geral / Moderado).
+  // Antes, nada marcava a opção ao clicar: a escolha nunca chegava ao servidor (valia sempre geral e moderado).
+  const CHIPS_PADRAO = { foco: 'geral', ritmo: 'moderado' };
+  function marcarChip(grupo, chip) {
+    grupo.querySelectorAll('.chip').forEach(c => { const ativo = c === chip; c.classList.toggle('active', ativo); c.setAttribute('aria-pressed', ativo ? 'true' : 'false'); });
+  }
+  function resetarChips() {
+    document.querySelectorAll('[data-chip-group]').forEach(grupo => marcarChip(grupo, grupo.querySelector('.chip[data-value="' + CHIPS_PADRAO[grupo.dataset.chipGroup] + '"]')));
+  }
+  document.querySelectorAll('[data-chip-group]').forEach(grupo => {
+    grupo.setAttribute('role', 'group');
+    grupo.addEventListener('click', e => { const chip = e.target.closest('.chip'); if (chip && grupo.contains(chip)) marcarChip(grupo, chip); });
+  });
+  resetarChips();
+
+  // [PRAZO-JANELA] o prazo é perguntado aqui (e não no onboarding) quando o objetivo ainda não tem um
+  function mostrarCampoPrazo(mostrar) {
+    const bloco = document.getElementById('fragAutoPrazoBloco'), campo = document.getElementById('fragAutoPrazo');
+    bloco.classList.toggle('hidden', !mostrar);
+    campo.value = '';
+    if (mostrar) {
+      const pad = (n) => String(n).padStart(2, '0'), fmt = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());   // data local, não UTC
+      const d = new Date();
+      campo.min = fmt(d);
+      d.setFullYear(d.getFullYear() + 10);
+      campo.max = fmt(d);
+    }
+  }
+
+  function abrirFragmentacaoAutomatica(idObjetivo, titulo, temPrazo) {
     fragAutoContexto = { tipo: 'existente', idObjetivo };
+    mostrarCampoPrazo(temPrazo === false);   // só pergunta o prazo se o objetivo ainda não tem
     document.getElementById('fragAutoPerguntas').classList.remove('hidden');
     document.getElementById('fragAutoPreview').classList.add('hidden');
     document.getElementById('fragAutoPreview').innerHTML = '';
-    document.querySelectorAll('[data-chip-group] .chip').forEach(c => c.classList.remove('active'));
+    resetarChips();
     document.getElementById('modalFragAuto').classList.remove('hidden');
   }
 
@@ -146,11 +187,12 @@
     if (!titulo) { alert('Digite um título antes de fragmentar.'); return; }
     const prazo = document.getElementById('novoObjetivoPrazo').value || null;
     fragAutoContexto = { tipo: 'novo', titulo, prazo };
+    mostrarCampoPrazo(false);   // o prazo já foi preenchido no formulário do objetivo novo
     document.getElementById('modalObjetivo').classList.add('hidden');
     document.getElementById('fragAutoPerguntas').classList.remove('hidden');
     document.getElementById('fragAutoPreview').classList.add('hidden');
     document.getElementById('fragAutoPreview').innerHTML = '';
-    document.querySelectorAll('[data-chip-group] .chip').forEach(c => c.classList.remove('active'));
+    resetarChips();
     document.getElementById('modalFragAuto').classList.remove('hidden');
   }
 
@@ -171,6 +213,9 @@
       if (fragAutoContexto.prazo) form.set('prazo', fragAutoContexto.prazo);
     } else {
       url = `/objetivos/${fragAutoContexto.idObjetivo}/fragmentar/previa`;
+      const prazoEscolhido = document.getElementById('fragAutoPrazo').value;
+      fragAutoContexto.prazoEscolhido = prazoEscolhido || null;
+      if (prazoEscolhido) form.set('prazo', prazoEscolhido);
     }
 
     try {
@@ -179,7 +224,7 @@
       btn.disabled = false;
       btn.textContent = 'Gerar sugestão';
       if (!resp.ok) { alert(dados.erro || 'Algo deu errado.'); return; }
-      mostrarPreviaFragmentos(dados.propostas);
+      mostrarPreviaFragmentos(dados.propostas, dados.aviso);
     } catch (e) {
       btn.disabled = false;
       btn.textContent = 'Gerar sugestão';
@@ -187,46 +232,119 @@
     }
   });
 
-  function mostrarPreviaFragmentos(propostas) {
+  function mostrarPreviaFragmentos(propostas, aviso) {
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const pad = (n) => String(n).padStart(2, '0');
+    const hoje = ((d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()))(new Date());   // data local, não UTC
     document.getElementById('fragAutoPerguntas').classList.add('hidden');
     const preview = document.getElementById('fragAutoPreview');
     preview.classList.remove('hidden');
 
-    const itens = propostas.map(function (p) {
-      const data = new Date(p.inicio);
-      const dataFmt = data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-      const horaFmt = data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      return `<li style="padding:10px 0;border-bottom:1px solid var(--nc-border);display:flex;justify-content:space-between;">
-        <span style="font-size:13px;font-weight:600;color:var(--nc-text);">${p.titulo}</span>
-        <span style="font-size:12px;font-weight:600;color:var(--nc-text2);">${dataFmt} · ${horaFmt}</span>
-      </li>`;
-    }).join('');
-
     preview.innerHTML = `
-      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800;color:var(--nc-text);">Proposta — ${propostas.length} fragmentos</h3>
-      <ul style="list-style:none;margin:0 0 20px;padding:0;max-height:280px;overflow-y:auto;">${itens}</ul>
+      <h3 id="fragAutoTitulo" style="margin:0 0 6px;font-size:16px;font-weight:800;color:var(--nc-text);"></h3>
+      <p style="margin:0 0 12px;font-size:13px;line-height:1.5;color:var(--nc-text2);">Ajuste o título, o dia e a hora de cada passo, ou remova o que não quiser. Confira se o horário não bate com outro compromisso.</p>
+      ${aviso ? `<p role="status" style="margin:0 0 12px;font-size:13px;line-height:1.5;font-weight:600;color:#B45309;">${esc(aviso)}</p>` : ''}
+      <ul id="fragAutoLista" style="list-style:none;margin:0 0 12px;padding:0;max-height:300px;overflow-y:auto;"></ul>
+      <p id="fragAutoErro" role="alert" style="margin:0 0 12px;min-height:18px;font-size:13px;line-height:1.4;font-weight:600;color:#B91C1C;"></p>
       <button type="button" id="btnConfirmarFragmentos" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Adicionar à agenda</button>
       <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalFragAuto').classList.add('hidden')">Cancelar</button>
     `;
 
+    const lista = document.getElementById('fragAutoLista');
+    const erro = document.getElementById('fragAutoErro');
+    const estilo = 'height:40px;padding:0 10px;border:1.5px solid var(--nc-border);border-radius:10px;background:var(--nc-surface, #fff);color:var(--nc-text);font:inherit;font-size:13px;box-sizing:border-box;';
+
+    function atualizarCabecalho() {
+      const n = lista.children.length;
+      document.getElementById('fragAutoTitulo').textContent = 'Proposta — ' + n + (n === 1 ? ' fragmento' : ' fragmentos');
+      document.getElementById('btnConfirmarFragmentos').disabled = n === 0;
+      [...lista.children].forEach((li, i) => {
+        li.querySelector('[data-campo="titulo"]').setAttribute('aria-label', 'Título do passo ' + (i + 1));
+        li.querySelector('[data-campo="data"]').setAttribute('aria-label', 'Dia do passo ' + (i + 1));
+        li.querySelector('[data-campo="hora"]').setAttribute('aria-label', 'Hora do passo ' + (i + 1));
+        li.querySelector('[data-campo="remover"]').setAttribute('aria-label', 'Remover o passo ' + (i + 1));
+      });
+      if (n === 0) erro.textContent = 'Todos os passos foram removidos. Use Cancelar para voltar.';
+    }
+
+    function criarCampo(tipo, campo, valor, extra) {
+      const c = document.createElement('input');
+      c.type = tipo;
+      c.value = valor;               // como valor (texto), nunca como HTML
+      c.dataset.campo = campo;
+      c.style.cssText = estilo + extra;
+      return c;
+    }
+
+    propostas.forEach((p) => {
+      const partes = String(p.inicio).split('T');
+      const li = document.createElement('li');
+      li.dataset.duracao = String(p.duracao_min || 30);
+      li.style.cssText = 'padding:12px 0;border-bottom:1px solid var(--nc-border);';
+      const titulo = criarCampo('text', 'titulo', p.titulo, 'width:100%;font-weight:600;margin-bottom:8px;');
+      titulo.maxLength = 200;
+      const linha = document.createElement('div');
+      linha.style.cssText = 'display:flex;gap:8px;align-items:center;';
+      const dia = criarCampo('date', 'data', (partes[0] || '').slice(0, 10), 'flex:1;min-width:0;');
+      dia.min = hoje;
+      const hora = criarCampo('time', 'hora', (partes[1] || '09:00').slice(0, 5), 'width:128px;flex:none;');   // largo o bastante para o relógio de 12 horas (10:00 AM)
+      const duracao = document.createElement('span');
+      duracao.textContent = (p.duracao_min || 30) + ' min';
+      duracao.style.cssText = 'font-size:12px;font-weight:600;color:var(--nc-text2);white-space:nowrap;';
+      const remover = document.createElement('button');
+      remover.type = 'button';
+      remover.dataset.campo = 'remover';
+      remover.textContent = '✕';
+      remover.style.cssText = 'width:40px;height:40px;flex:none;border:1.5px solid var(--nc-border);border-radius:10px;background:transparent;color:var(--nc-text2);font-size:14px;font-weight:700;cursor:pointer;';
+      remover.addEventListener('click', () => { li.remove(); erro.textContent = ''; atualizarCabecalho(); });
+      linha.append(dia, hora, duracao, remover);
+      li.append(titulo, linha);
+      lista.appendChild(li);
+    });
+    atualizarCabecalho();
+
     document.getElementById('btnConfirmarFragmentos').addEventListener('click', async function () {
+      const editados = [];
+      const linhas = [...lista.children];
+      for (let i = 0; i < linhas.length; i++) {
+        const li = linhas[i], t = li.querySelector('[data-campo="titulo"]'), d = li.querySelector('[data-campo="data"]'), h = li.querySelector('[data-campo="hora"]');
+        let motivo = '', campo = null;
+        if (!t.value.trim()) { motivo = 'escreva um título.'; campo = t; }
+        else if (!d.value || !h.value) { motivo = 'escolha o dia e a hora.'; campo = d.value ? h : d; }
+        else if (d.value < hoje) { motivo = 'escolha uma data de hoje em diante.'; campo = d; }
+        if (motivo) { erro.textContent = 'Passo ' + (i + 1) + ': ' + motivo; campo.focus(); return; }
+        editados.push({ titulo: t.value.trim(), inicio: d.value + 'T' + h.value, duracao_min: Number(li.dataset.duracao) || 30 });
+      }
+      if (!editados.length) return;
+      editados.sort((a, b) => (a.inicio < b.inicio ? -1 : a.inicio > b.inicio ? 1 : 0));
+      erro.textContent = '';
+
+      const botao = this;
       const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-      this.disabled = true;
-      this.textContent = 'Adicionando...';
+      botao.disabled = true;
+      botao.textContent = 'Adicionando...';
 
       let url, body;
       const headers = { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken };
       if (fragAutoContexto.tipo === 'novo') {
         url = '/objetivos/novo/fragmentar/confirmar';
-        body = JSON.stringify({ titulo_objetivo: fragAutoContexto.titulo, prazo: fragAutoContexto.prazo, propostas });
+        body = JSON.stringify({ titulo_objetivo: fragAutoContexto.titulo, prazo: fragAutoContexto.prazo, propostas: editados });
       } else {
-        url = `/objetivos/${fragAutoContexto.idObjetivo}/fragmentar/confirmar`;
-        body = JSON.stringify(propostas);
+        url = `/objetivos/${fragAutoContexto.idObjetivo}/fragmentar/confirmar`
+          + (fragAutoContexto.prazoEscolhido ? '?prazo=' + encodeURIComponent(fragAutoContexto.prazoEscolhido) : '');
+        body = JSON.stringify(editados);
       }
 
-      const resp = await fetch(url, { method: 'POST', headers, body });
-      const dados = await resp.json();
-      if (dados.redirect) window.location.href = dados.redirect;
+      try {
+        const resp = await fetch(url, { method: 'POST', headers, body });
+        const dados = await resp.json();
+        if (!resp.ok) { erro.textContent = dados.erro || 'Não foi possível adicionar os passos.'; botao.disabled = false; botao.textContent = 'Adicionar à agenda'; return; }
+        if (dados.redirect) window.location.href = dados.redirect;
+      } catch (e) {
+        erro.textContent = 'Não foi possível conectar ao servidor.';
+        botao.disabled = false;
+        botao.textContent = 'Adicionar à agenda';
+      }
     });
   }
 </script>
@@ -234,8 +352,8 @@
 <script>
   // [ONBOARDING] a pessoa pediu ajuda para dividir o objetivo em passos: abre a prévia uma vez
   window.addEventListener('load', function () {
-    var id = {{ abrir_fragmentacao.id_objetivo|tojson }}, titulo = {{ abrir_fragmentacao.titulo|tojson }};
-    abrirFragmentacaoAutomatica(id, titulo);
+    var id = {{ abrir_fragmentacao.id_objetivo|tojson }}, titulo = {{ abrir_fragmentacao.titulo|tojson }}, tem = {{ (abrir_fragmentacao.prazo is not none)|tojson }};
+    abrirFragmentacaoAutomatica(id, titulo, tem);
     var h = document.querySelector('#fragAutoPerguntas h3');
     if (h) {
       var p = document.createElement('p');

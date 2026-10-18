@@ -583,6 +583,16 @@ def cadastro_perfil():
 
     dados = request.get_json(silent=True) or {}
 
+    # [LOTE1] confere a forma dos dados ANTES de criar a conta: um horário incompleto não pode deixar conta pela metade
+    if not isinstance(dados, dict):
+        return jsonify({"erro": "Dados inválidos. Atualize a página e tente de novo."}), 400
+    for chave in ("horario_trabalho_personalizado", "horario_trabalho_estimado", "horario_estudo"):
+        if dados.get(chave) and not _horario_valido(dados[chave]):
+            return jsonify({"erro": "Horário inválido. Volte e confira o início e o fim."}), 400
+    for chave in ("dias_trabalho", "dias_estudo", "hobbies", "areas_melhoria"):
+        if not _lista_de_textos(dados.get(chave)):
+            return jsonify({"erro": "Alguma resposta veio num formato inválido. Atualize a página e tente de novo."}), 400
+
     faixa_etaria = FAIXA_ETARIA_ONBOARDING_PARA_DB.get(dados.get("idade"))
     trabalha = dados.get("trabalha") == "sim"
     estuda = dados.get("estuda") == "sim"
@@ -682,21 +692,30 @@ def logout():
 # ============================================================
 # TAREFAS
 # ============================================================
-def tarefas_filtradas(id_usuario, filtro):
-    """'hoje' | 'proximas' | qualquer outro valor = todas. Filtra no banco, não em Python."""
+def tarefas_filtradas(id_usuario, filtro, categoria=None):
+    """'hoje' | 'proximas' | qualquer outro valor = todas. 'hoje' inclui as tarefas que começaram antes e ainda estão ativas
+    (atravessam a meia-noite), como na Agenda. categoria: uma das categorias da tela, ou None/'todas'."""
     hoje = datetime.combine(datetime.now().date(), datetime.min.time())
     if filtro == "hoje":
-        return db.listar_tarefas(id_usuario, data_inicio=hoje, inicio_antes=hoje + timedelta(days=1))
-    if filtro == "proximas":
-        return db.listar_tarefas(id_usuario, data_inicio=hoje + timedelta(days=1))
-    return db.listar_tarefas(id_usuario)
+        do_dia = db.listar_tarefas(id_usuario, data_inicio=hoje, inicio_antes=hoje + timedelta(days=1))
+        anteriores = [t for t in db.listar_tarefas(id_usuario, data_inicio=hoje - timedelta(days=7), inicio_antes=hoje)
+                      if t.get("data_fim") and t["data_fim"] > hoje]
+        lista = sorted(list(anteriores) + list(do_dia), key=lambda t: t["data_inicio"])
+    elif filtro == "proximas":
+        lista = db.listar_tarefas(id_usuario, data_inicio=hoje + timedelta(days=1))
+    else:
+        lista = db.listar_tarefas(id_usuario)
+    if categoria and categoria != "todas":
+        lista = [t for t in lista if t.get("categoria") == categoria]
+    return lista
 
 
-def _render_tarefas(filtro="hoje", **extra):
+def _render_tarefas(filtro="hoje", categoria_filtro="todas", **extra):
     return render_template(
         "tarefas.html",
-        tarefas=tarefas_filtradas(usuario_logado(), filtro),
+        tarefas=tarefas_filtradas(usuario_logado(), filtro, categoria_filtro),
         filtro=filtro,
+        categoria_filtro=categoria_filtro,
         **_pagina("tarefas", "Tarefas", **extra),
     )
 
@@ -748,7 +767,10 @@ def _resposta_de_tarefa(resultado, formulario):
 @app.route("/tarefas")
 @login_obrigatorio
 def tarefas():
-    return _render_tarefas(request.args.get("filtro", "hoje"))
+    categoria = request.args.get("categoria", "todas")
+    if categoria not in ("todas", "trabalho", "estudo", "hobby", "pessoal", "saude", "outro"):
+        categoria = "todas"
+    return _render_tarefas(request.args.get("filtro", "hoje"), categoria_filtro=categoria)
 
 
 @app.route("/tarefas/nova", methods=["POST"])
@@ -993,8 +1015,11 @@ def objetivos():
 def criar_objetivo_rota():
     if not usuario_logado():
         return redirect(url_for("tela_login"))
-    titulo = request.form.get("titulo", "").strip()
-    prazo = request.form.get("prazo") or None
+    titulo = request.form.get("titulo", "").strip()[:200]
+    try:
+        prazo = _prazo_iso(request.form.get("prazo"))
+    except ValueError:
+        abort(400)   # data inválida: só chega assim por envio manual (o campo de data do navegador não deixa)
     if titulo:
         db.criar_objetivo(usuario_logado(), titulo, prazo=prazo)
         _mascote_evento("objetivo_criado", objetivo=titulo)   # [MASCOTE]
@@ -1033,8 +1058,11 @@ def desfazer_objetivo_rota(id_objetivo):
 def editar_objetivo_rota(id_objetivo):
     if not usuario_logado():
         return redirect(url_for("tela_login"))
-    titulo = request.form.get("titulo", "").strip()
-    prazo = request.form.get("prazo") or None
+    titulo = request.form.get("titulo", "").strip()[:200]
+    try:
+        prazo = _prazo_iso(request.form.get("prazo"))
+    except ValueError:
+        abort(400)   # data inválida: só chega assim por envio manual (o campo de data do navegador não deixa)
     if titulo:
         db.atualizar_objetivo(id_objetivo, usuario_logado(), titulo=titulo, prazo=prazo)
     return redirect(url_for("objetivos"))
@@ -1056,6 +1084,119 @@ def criar_fragmento_rota(id_objetivo):
     return redirect(url_for("objetivos"))
 
 
+# [LOTE1] validações e planejamento de passos (itens 32, 48, 49, 50, 53 e 72 do relatório)
+def _horario_valido(valor):
+    """{'start': 'HH:MM', 'end': 'HH:MM'} com horas e minutos reais."""
+    if not isinstance(valor, dict):
+        return False
+    for chave in ("start", "end"):
+        texto = valor.get(chave)
+        if not isinstance(texto, str):
+            return False
+        partes = texto.split(":")
+        if len(partes) != 2 or not all(p.isdigit() and len(p) <= 2 for p in partes):
+            return False
+        if not (0 <= int(partes[0]) <= 23 and 0 <= int(partes[1]) <= 59):
+            return False
+    return True
+
+
+def _lista_de_textos(valor):
+    return valor is None or (isinstance(valor, list) and all(isinstance(x, str) for x in valor))
+
+
+def _prazo_date(texto):
+    """vazio -> None; 'AAAA-MM-DD' real (de 2000 até hoje + 10 anos) -> date; qualquer outra coisa -> ValueError."""
+    if not texto:
+        return None
+    if not isinstance(texto, str):
+        raise ValueError("prazo")
+    dia = datetime.strptime(texto.strip(), "%Y-%m-%d").date()
+    if dia < date(2000, 1, 1) or dia > date.today() + timedelta(days=3653):
+        raise ValueError("prazo fora do intervalo")
+    return dia
+
+
+def _prazo_iso(texto):
+    dia = _prazo_date(texto)
+    return dia.isoformat() if dia else None
+
+
+def _validar_propostas(lista):
+    """Confere TODA a lista de passos antes de gravar qualquer um. Devolve (passos, None) ou ([], mensagem)."""
+    if not isinstance(lista, list) or not lista:
+        return [], "Não há passos para salvar."
+    if len(lista) > 12:
+        return [], "Passos demais de uma vez (no máximo 12)."
+    agora = datetime.now()
+    passos = []
+    for p in lista:
+        if not isinstance(p, dict):
+            return [], "Um dos passos veio num formato inválido."
+        titulo = p.get("titulo")
+        titulo = " ".join(titulo.split())[:200] if isinstance(titulo, str) else ""
+        if not titulo:
+            return [], "Um dos passos está sem título."
+        try:
+            inicio = datetime.fromisoformat(p["inicio"])
+        except (KeyError, TypeError, ValueError):
+            return [], "Um dos passos está com data ou hora inválida."
+        if not (agora - timedelta(days=1) <= inicio.replace(tzinfo=None) <= agora + timedelta(days=3653)):
+            return [], "Um dos passos está com data fora do intervalo permitido."
+        duracao = p.get("duracao_min", 30)
+        if isinstance(duracao, bool) or not isinstance(duracao, int) or not 5 <= duracao <= 480:
+            return [], "Um dos passos está com duração inválida (de 5 a 480 minutos)."
+        passos.append({"titulo": titulo, "inicio": inicio, "fim": inicio + timedelta(minutes=duracao)})
+    return passos, None
+
+
+def _planejar_fragmentos(id_usuario, titulos, prazo, duracao_min, ritmo, hoje=None):
+    """Distribui os passos entre amanhã e o prazo (sem prazo: uma semana entre eles). O ritmo define o espaçamento mínimo.
+    Só propõe horários que a agenda confirma como livres: sem horário livre não há proposta. Devolve (propostas, aviso)."""
+    hoje = hoje or date.today()
+    titulos = list(titulos)[:12]
+    total = len(titulos)
+    if prazo:
+        inicio_janela = hoje if prazo <= hoje else hoje + timedelta(days=1)
+        dias = [inicio_janela + timedelta(days=i) for i in range((prazo - inicio_janela).days + 1)]   # o prazo já foi validado (até 10 anos)
+        intervalo = {"curto_frequente": 1, "moderado": 2, "longo_espacado": 3}.get(ritmo, 2)
+        quantos = min(total, (len(dias) - 1) // intervalo + 1)
+        alvos = [0] if quantos == 1 else [round(k * (len(dias) - 1) / (quantos - 1)) for k in range(quantos)]
+    else:
+        dias = [hoje + timedelta(days=i) for i in range(1, 7 * total + 8)]
+        quantos = total
+        alvos = [7 * (k + 1) - 1 for k in range(quantos)]
+    usados, slots = set(), []
+    for alvo in alvos:
+        ordem = [alvo]
+        for passo in range(1, len(dias)):
+            ordem += [alvo + passo, alvo - passo]
+        for idx in ordem:
+            if not prazo and abs(idx - alvo) > 6:
+                break                      # sem prazo, não se afasta mais de uma semana do dia-alvo
+            if idx in usados or not 0 <= idx < len(dias):
+                continue
+            achou = decisao.sugerir_horarios(id_usuario, dias[idx], duracao_min, max_sugestoes=1)
+            if achou.get("sugestoes"):
+                usados.add(idx)
+                slots.append(achou["sugestoes"][0]["inicio"])
+                break
+    slots.sort()
+    propostas = [{"titulo": titulos[i], "inicio": inicio, "duracao_min": duracao_min} for i, inicio in enumerate(slots)]
+    if not propostas:
+        return [], ("Não encontrei horário livre até o prazo. Tente um prazo maior ou libere espaço na agenda." if prazo
+                    else "Não encontrei horário livre nos próximos dias. Libere espaço na agenda e tente de novo.")
+    aviso = None
+    passos = lambda n: f"{n} passo" + ("" if n == 1 else "s")
+    if quantos < total:
+        aviso = f"Até o prazo cabem só {passos(quantos)} nesse ritmo (a IA sugeriu {total})."
+        if len(propostas) < quantos:
+            aviso = f"Só encontrei horário livre para {len(propostas)} de {total} passos até o prazo."
+    elif len(propostas) < total:
+        aviso = f"Só encontrei horário livre para {len(propostas)} de {total} passos {'até o prazo' if prazo else 'nos próximos dias'}."
+    return propostas, aviso
+
+
 def calcular_quantidade_fragmentos(prazo, hoje=None):
     hoje = hoje or date.today()
     if not prazo or prazo <= hoje:
@@ -1068,11 +1209,20 @@ def calcular_quantidade_fragmentos(prazo, hoje=None):
 @login_obrigatorio
 def novo_objetivo_fragmentar_previa():
     titulo_objetivo = request.form.get("titulo", "").strip()
-    prazo_str = request.form.get("prazo") or None
     if not titulo_objetivo:
         return jsonify(erro="Digite um título antes de fragmentar."), 400
+    try:
+        prazo_date = _prazo_date(request.form.get("prazo"))
+    except ValueError:
+        return jsonify(erro="Prazo inválido. Escolha uma data de hoje em diante."), 400
+    return _previa_fragmentos(titulo_objetivo, prazo_date)
 
-    prazo_date = datetime.strptime(prazo_str, "%Y-%m-%d").date() if prazo_str else None
+
+def _previa_fragmentos(titulo_objetivo, prazo_date, existente=False):
+    """Prévia dos passos (compartilhada pelo objetivo novo e pelo existente). Nada é gravado aqui."""
+    if prazo_date and prazo_date < date.today():
+        return jsonify(erro=("O prazo deste objetivo já passou. Edite o objetivo e escolha uma nova data para dividir em passos." if existente
+                             else "O prazo já passou. Escolha uma data de hoje em diante.")), 400
     foco = request.form.get("foco", "geral")
     ritmo = request.form.get("ritmo", "moderado")
     duracao_min = 60 if ritmo == "longo_espacado" else 30
@@ -1085,98 +1235,79 @@ def novo_objetivo_fragmentar_previa():
     if not titulos:
         return jsonify(erro="A IA não conseguiu gerar os fragmentos. Tenta de novo."), 502
 
-    hoje = datetime.now()
-    propostas = []
-    for i, titulo in enumerate(titulos):
-        dia_alvo = (hoje + timedelta(weeks=i + 1)).date()
-        sugestoes = decisao.sugerir_horarios(usuario_logado(), dia_alvo, duracao_min, max_sugestoes=1)
-        if sugestoes.get("sugestoes"):
-            inicio = sugestoes["sugestoes"][0]["inicio"]
-        else:
-            inicio = datetime.combine(dia_alvo, datetime.min.time().replace(hour=9)).isoformat(timespec="minutes")
-        propostas.append({"titulo": titulo, "inicio": inicio, "duracao_min": duracao_min})
-
-    return jsonify(propostas=propostas)
+    propostas, aviso = _planejar_fragmentos(usuario_logado(), titulos, prazo_date, duracao_min, ritmo)
+    if not propostas:
+        return jsonify(erro=aviso), 409
+    return jsonify(propostas=propostas, aviso=aviso)
 
 
 @app.route("/objetivos/novo/fragmentar/confirmar", methods=["POST"])
 @login_obrigatorio
 def novo_objetivo_fragmentar_confirmar():
-    dados = request.get_json(silent=True) or {}
-    titulo_objetivo = (dados.get("titulo_objetivo") or "").strip()
-    prazo_str = dados.get("prazo") or None
-    propostas = dados.get("propostas") or []
+    dados = request.get_json(silent=True)
+    if not isinstance(dados, dict):
+        return jsonify(erro="formato inválido"), 400
+    titulo_objetivo = dados.get("titulo_objetivo")
+    titulo_objetivo = " ".join(titulo_objetivo.split())[:200] if isinstance(titulo_objetivo, str) else ""
     if not titulo_objetivo:
         return jsonify(erro="título ausente"), 400
+    try:
+        prazo_str = _prazo_iso(dados.get("prazo"))
+    except ValueError:
+        return jsonify(erro="Prazo inválido."), 400
+    passos, erro = _validar_propostas(dados.get("propostas"))
+    if erro:
+        return jsonify(erro=erro), 400      # nada foi criado: a lista inteira é conferida antes de gravar
 
     id_objetivo = db.criar_objetivo(usuario_logado(), titulo_objetivo, prazo=prazo_str)
+    for p in passos:
+        db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, p["titulo"], p["inicio"], p["fim"])
 
-    for p in propostas:
-        try:
-            inicio = datetime.fromisoformat(p["inicio"])
-        except (KeyError, ValueError):
-            continue
-        fim = inicio + timedelta(minutes=p.get("duracao_min", 30))
-        db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, p["titulo"], inicio, fim)
-
-    if propostas:   # [MASCOTE] [TEMA]
-        _mascote_evento("tarefa_criada")
-        _verificar_desbloqueio_cafeteria(usuario_logado())
-
+    _mascote_evento("tarefa_criada")   # [MASCOTE] [TEMA]
+    _verificar_desbloqueio_cafeteria(usuario_logado())
     return jsonify(ok=True, redirect=url_for("objetivos"))
 
 
+# [PRAZO-JANELA] objetivo sem prazo: a janela "Duas perguntas rápidas" pergunta o prazo; a prévia usa o que foi escolhido
 @app.route("/objetivos/<int:id_objetivo>/fragmentar/previa", methods=["POST"])
 @login_obrigatorio
 def fragmentar_objetivo_previa(id_objetivo):
     objetivo = db.buscar_objetivo(id_objetivo, usuario_logado())
     if not objetivo:
         return jsonify(erro="objetivo não encontrado"), 404
-
-    foco = request.form.get("foco", "geral")
-    ritmo = request.form.get("ritmo", "moderado")
-    duracao_min = 60 if ritmo == "longo_espacado" else 30
-
-    quantidade = calcular_quantidade_fragmentos(objetivo["prazo"].date() if objetivo["prazo"] else None)
-
+    prazo = objetivo["prazo"]
+    prazo_date = prazo.date() if hasattr(prazo, "date") else prazo
+    if prazo_date:
+        return _previa_fragmentos(objetivo["titulo"], prazo_date, existente=True)
     try:
-        titulos = ai.gerar_titulos_fragmentos(objetivo["titulo"], objetivo["prazo"], foco, ritmo, quantidade)
-    except Exception:
-        return jsonify(erro="Não consegui falar com a IA agora. Tenta de novo em instantes."), 503
-
-    if not titulos:
-        return jsonify(erro="A IA não conseguiu gerar os fragmentos. Tenta de novo."), 502
-
-    hoje = datetime.now()
-    propostas = []
-    for i, titulo in enumerate(titulos):
-        dia_alvo = (hoje + timedelta(weeks=i + 1)).date()
-        sugestoes = decisao.sugerir_horarios(usuario_logado(), dia_alvo, duracao_min, max_sugestoes=1)
-        if sugestoes.get("sugestoes"):
-            inicio = sugestoes["sugestoes"][0]["inicio"]
-        else:
-            inicio = datetime.combine(dia_alvo, datetime.min.time().replace(hour=9)).isoformat(timespec="minutes")
-        propostas.append({"titulo": titulo, "inicio": inicio, "duracao_min": duracao_min})
-
-    return jsonify(propostas=propostas)
+        prazo_date = _prazo_date(request.form.get("prazo"))      # vazio -> None (sem prazo: 4 passos, uma semana entre eles)
+    except ValueError:
+        return jsonify(erro="Prazo inválido. Escolha uma data de hoje em diante."), 400
+    return _previa_fragmentos(objetivo["titulo"], prazo_date)
 
 
 @app.route("/objetivos/<int:id_objetivo>/fragmentar/confirmar", methods=["POST"])
 @login_obrigatorio
 def fragmentar_objetivo_confirmar(id_objetivo):
-    propostas = request.get_json(silent=True) or []
-    for p in propostas:
-        try:
-            inicio = datetime.fromisoformat(p["inicio"])
-        except (KeyError, ValueError):
-            continue
-        fim = inicio + timedelta(minutes=p.get("duracao_min", 30))
-        db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, p["titulo"], inicio, fim)
+    objetivo = db.buscar_objetivo(id_objetivo, usuario_logado())
+    if not objetivo:
+        return jsonify(erro="objetivo não encontrado"), 404
+    passos, erro = _validar_propostas(request.get_json(silent=True))
+    if erro:
+        return jsonify(erro=erro), 400      # nada foi criado: a lista inteira é conferida antes de gravar
+    try:
+        prazo_escolhido = _prazo_iso(request.args.get("prazo"))
+    except ValueError:
+        return jsonify(erro="Prazo inválido."), 400
+    if prazo_escolhido and prazo_escolhido < date.today().isoformat():
+        return jsonify(erro="O prazo já passou. Escolha uma data de hoje em diante."), 400
+    if prazo_escolhido and not objetivo["prazo"]:
+        db.atualizar_objetivo(id_objetivo, usuario_logado(), prazo=prazo_escolhido)   # o prazo escolhido na janela passa a ser o do objetivo
+    for p in passos:
+        db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, p["titulo"], p["inicio"], p["fim"])
 
-    if propostas:   # [MASCOTE] [TEMA]
-        _mascote_evento("tarefa_criada")
-        _verificar_desbloqueio_cafeteria(usuario_logado())
-
+    _mascote_evento("tarefa_criada")   # [MASCOTE] [TEMA]
+    _verificar_desbloqueio_cafeteria(usuario_logado())
     return jsonify(ok=True, redirect=url_for("objetivos"))
 
 

@@ -48,6 +48,7 @@
     let base = '';            // o que já estava no campo quando começou a ditar
     let erro = null;
     let sobraTimer = null;
+    let descartar = false;    // depois de ENVIAR, a transcrição que ainda chegar é ignorada (senão devolveria o texto à caixa)
 
     const dizer = (texto) => { if (status) status.textContent = texto; };
     const limite = () => (campo.maxLength > 0 ? campo.maxLength : 0);
@@ -91,8 +92,10 @@
       rec.maxAlternatives = 1;
       base = (campo.value || '').trim();
       erro = null;
+      descartar = false;
 
       rec.onresult = (ev) => {
+        if (descartar) return;
         // refaz o texto a partir de TODOS os resultados: evita repetir palavras quando o navegador reenvia o acumulado
         let finais = '';
         let interim = '';
@@ -140,7 +143,14 @@
     pintar();
     dizer(MENSAGENS.dica);
     botao.addEventListener('click', () => (ouvindo ? parar() : comecar()));
-    if (form && form.addEventListener) form.addEventListener('submit', parar);   // enviar a mensagem encerra o ditado
+    if (form && form.addEventListener) {
+      form.addEventListener('submit', (e) => {      // enviar a mensagem encerra o ditado
+        parar();
+        // se a página cancelar o envio (por exemplo, mensagem em branco), o ditado continua valendo; senão, resultados atrasados são ignorados
+        const marcar = () => { if (!(e && e.defaultPrevented)) descartar = true; };
+        if (win.setTimeout) win.setTimeout(marcar, 0); else marcar();
+      });
+    }
     if (win.document && win.document.addEventListener) {
       win.document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ouvindo) parar(); });
     }

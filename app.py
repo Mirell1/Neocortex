@@ -1639,8 +1639,11 @@ def equipar_acessorio():
 @app.route("/jornada")
 @login_obrigatorio
 def jornada():
+    if not GAMIFICACAO_ATIVA:   # sem gamificação não há níveis nem mascote: volta ao Início
+        return redirect(url_for("dashboard"))
     pontos = db.calcular_pontos_mascote(usuario_logado())
     nivel_atual = nivel_mascote(pontos)
+    catalogo = acessorios_do_mascote(_skin_atual(usuario_logado()))   # [ACESSÓRIOS] os itens variam por mascote
     nos = []
     for i, n in enumerate(NIVEIS_MASCOTE):
         if n["nivel"] == nivel_atual["nivel"]:
@@ -1649,14 +1652,11 @@ def jornada():
             status = "concluido"
         else:
             status = "bloqueado"
-        nos.append({
-            **n,
-            "x": 150 if i % 2 == 0 else 346,
-            "y": 70 + i * 170,
-            "status": status,
-        })
-    altura_svg = 70 + len(NIVEIS_MASCOTE) * 170
-    return render_template("jornada.html", nos=nos, altura_svg=altura_svg, **_pagina("jornada", "Jornada"))
+        proximo_min = NIVEIS_MASCOTE[i + 1]["pontos_min"] if i + 1 < len(NIVEIS_MASCOTE) else float("inf")
+        # acessórios liberados ENTRE este nível e o próximo (nomes reais, do mascote em uso)
+        itens = [a["nome"] for a in catalogo if n["pontos_min"] <= a["pontos_min"] < proximo_min]
+        nos.append({**n, "status": status, "itens": itens})
+    return render_template("jornada.html", nos=nos, **_pagina("jornada", "Jornada"))
 
 
 # ============================================================

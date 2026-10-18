@@ -1,55 +1,206 @@
 {% extends "base_app_novo.html" %}
 {% block conteudo %}
-<div style="padding:32px;display:flex;flex-direction:column;align-items:center;">
-  <div style="width:100%;max-width:560px;">
-    <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:var(--nc-text);">Sua jornada</h2>
-    <p style="margin:0 0 28px;font-size:13px;font-weight:600;color:var(--nc-text2);">
-      {{ mascote_pontos }} pontos
-      {% if mascote_proximo_nivel %} · faltam {{ mascote_proximo_nivel.pontos_min - mascote_pontos }} para {{ mascote_proximo_nivel.nome }}{% endif %}
+{# Jornada: trilha HORIZONTAL com as 4 paradas (os níveis reais). A decoração segue o tema ATIVO quando ele está na versão
+   completa; na versão simples (ou no padrão) a trilha é a do padrão, só com as cores do tema. #}
+{% set J = tema_ativo if (tema_imersivo|default(false) and tema_ativo|default('padrao') != 'padrao') else 'padrao' %}
+{% set pontos_j = mascote_pontos|default(0) %}
+{% set prox_j = mascote_proximo_nivel|default(none) %}
+{% set pct_j = mascote_progresso_pct|default(0) %}
+{% set SUBTITULO = {
+  'padrao': 'Cada ponto fortalece a sua rede.',
+  'cafeteria': 'Cada pedido servido enche mais uma xícara.',
+  'campeonato': 'Cada tarefa é um lance rumo ao título.',
+  'papelaria': 'Cada tarefa riscada vira uma página do caderno.' } %}
+{% set ROTULOS = {
+  'padrao': ['Etapa 1', 'Etapa 2', 'Etapa 3', 'Etapa 4'],
+  'cafeteria': ['Primeiro café', 'Coado no ponto', 'Mesa cheia', 'Barista da casa'],
+  'campeonato': ['Aquecimento', 'Primeiro tempo', 'Segundo tempo', 'Campeão'],
+  'papelaria': ['Página em branco', 'Primeiras anotações', 'Caderno cheio', 'Capa dura'] } %}
+{% set ESTADO_TEXTO = {'concluido': 'concluído', 'atual': 'você está aqui', 'bloqueado': 'bloqueado'} %}
+
+<style>
+  .nc-jornada { padding: 32px; }
+  .nc-jornada-miolo { max-width: 980px; margin: 0 auto; }
+  .nc-jornada h2 { font-family: var(--tema-titulo, inherit); font-size: 22px; font-weight: 800; color: var(--nc-text); margin: 0 0 4px; }
+  .nc-jornada-sub { margin: 0; font-size: 13px; font-weight: 600; color: var(--nc-text2); }
+  .nc-jornada-sub + .nc-jornada-sub { margin: 2px 0 22px; }
+
+  /* cores da trilha: por tema (o padrão usa o azul-violeta da marca) */
+  .nc-jornada { --j-a: #2563EB; --j-b: #7C3AED; --j-vazio: #94A3B8; --j-papel: var(--nc-surface); --j-no: var(--nc-surface); --j-tinta: #1E1B4B; }
+  .nc-jornada[data-jornada="cafeteria"] { --j-a: #C98A4B; --j-b: #8B5A3C; --j-vazio: #A89484; --j-tinta: #3B2A22; }
+  .nc-jornada[data-jornada="campeonato"] { --j-a: #22C55E; --j-b: #15803D; --j-vazio: rgba(255, 255, 255, 0.78); --j-no: transparent; --j-tinta: #0B0F14; }
+  .nc-jornada[data-jornada="papelaria"] { --j-a: #8C7BFF; --j-b: #6C5BD4; --j-vazio: #9A94B3; --j-tinta: #2B2A33; }
+
+  .nc-palco-j {
+    position: relative; background: var(--j-papel); border: 1px solid var(--nc-border); border-radius: 18px;
+    padding: 28px 20px 24px; overflow-x: auto; scroll-snap-type: x proximity;
+  }
+  .nc-palco-j:focus-visible { outline: 3px solid var(--tema-destaque, #7C3AED); outline-offset: 2px; }
+  /* decoração por tema */
+  .nc-jornada[data-jornada="cafeteria"] .nc-palco-j {   /* toalha xadrez */
+    background-image: repeating-linear-gradient(0deg, rgba(139, 90, 60, 0.07) 0 14px, transparent 14px 28px),
+                      repeating-linear-gradient(90deg, rgba(139, 90, 60, 0.07) 0 14px, transparent 14px 28px);
+  }
+  .nc-jornada[data-jornada="papelaria"] .nc-palco-j {   /* folha pautada com margem */
+    background-image: linear-gradient(90deg, transparent 38px, rgba(224, 98, 154, 0.55) 38px 40px, transparent 40px),
+                      repeating-linear-gradient(180deg, transparent 0 27px, rgba(108, 91, 212, 0.16) 27px 28px);
+  }
+
+  .nc-trilha-j { list-style: none; margin: 0; padding: 0; display: flex; min-width: 660px; position: relative; }
+  .nc-jornada[data-jornada="campeonato"] .nc-trilha-j::before {   /* gramado atrás das bolas */
+    content: ""; position: absolute; left: -8px; right: -8px; top: 0; height: 76px; border-radius: 12px;
+    background: repeating-linear-gradient(90deg, #2E7D4F 0 64px, #2A7348 64px 128px);
+    box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85);
+  }
+  .nc-parada {
+    position: relative; flex: 1 1 0; display: flex; flex-direction: column; align-items: center; text-align: center;
+    padding: 6px 8px 0; scroll-snap-align: center; animation: nc-surge 0.5s ease both; animation-delay: calc(var(--i) * 0.12s);
+  }
+  /* conector: da borda do ícone anterior até a borda deste (40px a partir de cada centro: o ícone atual, ampliado, tem raio de 36px);
+     o trecho cheio acompanha o progresso real */
+  .nc-liga { position: absolute; top: 38px; left: calc(-50% + 40px); width: calc(100% - 80px); height: 4px; transform: translateY(-50%); border-radius: 3px;
+             background: repeating-linear-gradient(90deg, var(--j-vazio) 0 4px, transparent 4px 12px); z-index: 0; }
+  .nc-liga::after { content: ""; position: absolute; inset: -1px auto -1px 0; width: var(--p, 0%); border-radius: 3px;
+                    background: linear-gradient(90deg, var(--j-a), var(--j-b)); animation: nc-liga-encher 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+                    animation-delay: calc(var(--i) * 0.2s); }
+  .nc-jornada[data-jornada="campeonato"] .nc-liga::after { background: #FFFFFF; }
+  .nc-no { position: relative; z-index: 1; width: 64px; height: 64px; border-radius: 50%; background: var(--j-no); display: flex; align-items: center; justify-content: center; }
+  .estado-atual .nc-no { transform: scale(1.12); }
+  .nc-no svg { width: 64px; height: 64px; overflow: visible; }
+  .j-vazio { stroke: var(--j-vazio); fill: none; }
+  .j-tinta { stroke: var(--j-tinta); }
+
+  .nc-parada-nome { margin: 14px 0 0; font-size: 14px; font-weight: 800; color: var(--nc-text); }
+  .estado-bloqueado .nc-parada-nome { color: var(--nc-text2); }
+  .nc-parada-pontos, .nc-parada-tema { margin: 2px 0 0; font-size: 12px; font-weight: 700; color: var(--nc-text2); }
+  .nc-parada-tema { font-family: var(--tema-titulo, inherit); }
+  .nc-estado-tag { display: inline-block; margin-top: 8px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+  .estado-concluido .nc-estado-tag { background: var(--tema-selo-fundo, #DCFCE7); color: var(--tema-selo-texto, #166534); }
+  .estado-atual .nc-estado-tag { background: var(--tema-selo-fundo, #EDE9FE); color: var(--tema-selo-texto, #4C1D95); box-shadow: 0 0 0 2px var(--tema-selo-texto, #4C1D95); }
+  .estado-bloqueado .nc-estado-tag { border: 1.5px dashed var(--nc-text2); color: var(--nc-text2); }
+  .nc-itens { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin: 10px 0 0; padding: 0; }
+  .nc-itens li { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--nc-bg); border: 1px solid var(--nc-border); color: var(--nc-text); }
+  .estado-bloqueado .nc-itens li { color: var(--nc-text2); }
+  .nc-jornada-rodape { text-align: center; margin-top: 22px; }
+
+  /* anel de progresso: trilho + arco que preenche até o % real do nível atual */
+  .nc-anel-arco { animation: nc-anel-encher 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 0.15s + 0.2s); }
+  .nc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  @keyframes nc-anel-encher { from { stroke-dasharray: 0 100; } }
+  @keyframes nc-liga-encher { from { width: 0; } }
+  @keyframes nc-surge { from { opacity: 0; transform: translateY(8px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .nc-parada, .nc-liga::after, .nc-anel-arco { animation: none !important; }
+  }
+</style>
+
+
+{# ===== ícones das paradas: um desenho por tema e por estado (concluído, atual, bloqueado) ===== #}
+{% macro cadeado(w=2.5) %}
+  <rect x="23" y="30" width="18" height="14" rx="3" class="j-vazio" stroke-width="{{ w }}"/>
+  <path d="M26 30 v-5 a6 6 0 0 1 12 0 v5" class="j-vazio" stroke-width="{{ w }}"/>
+{% endmacro %}
+{% macro anel(pct, cy=32, cor='url(#jGrad)') %}
+  <circle cx="32" cy="{{ cy }}" r="29" fill="none" stroke="var(--j-vazio)" stroke-width="4" opacity="0.35"/>
+  {% if pct > 0 %}<circle class="nc-anel-arco" cx="32" cy="{{ cy }}" r="29" fill="none" stroke="{{ cor }}" stroke-width="4" stroke-linecap="round"
+          pathLength="100" stroke-dasharray="{{ pct }} 100" transform="rotate(-90 32 {{ cy }})"/>{% endif %}
+{% endmacro %}
+{% macro icone(J, status, pct=0) %}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  {% set cor_anel = '#FFFFFF' if J == 'campeonato' else 'url(#jGrad)' %}
+  {% set cy_anel = 34 if J == 'cafeteria' else 32 %}
+  {% if status == 'concluido' %}{{ anel(100, cy_anel, cor_anel) }}{% endif %}
+  {% if J == 'cafeteria' %}
+    {% if status == 'atual' %}{{ anel(pct, 34, cor_anel) }}{% endif %}
+    {% if status == 'bloqueado' %}
+      <path d="M14 24 H46 V38 Q46 52 30 52 Q14 52 14 38 Z" class="j-vazio" stroke-width="2.5"/>
+      <path d="M46 28 H50 Q57 28 57 35 Q57 42 50 42 H46" class="j-vazio" stroke-width="2.5"/>
+      <ellipse cx="30" cy="57" rx="20" ry="3" class="j-vazio" stroke-width="2.5"/>
+      <g transform="translate(30 40) scale(.6) translate(-32 -34)">{{ cadeado(4.2) }}</g>
+    {% else %}
+      <ellipse cx="30" cy="57" rx="20" ry="3.5" fill="#E7D8C6" stroke="#3B2A22" stroke-width="2.5"/>
+      <path d="M46 28 H50 Q57 28 57 35 Q57 42 50 42 H46" fill="none" stroke="#3B2A22" stroke-width="3" stroke-linecap="round"/>
+      <path d="M14 24 H46 V38 Q46 52 30 52 Q14 52 14 38 Z" fill="{{ '#8B5A3C' if status == 'concluido' else 'url(#jGrad)' }}" stroke="#3B2A22" stroke-width="3" stroke-linejoin="round"/>
+      <ellipse cx="30" cy="24" rx="16" ry="4.5" fill="#C98A4B" stroke="#3B2A22" stroke-width="3"/>
+      {% if status == 'concluido' %}<path d="M22 37 l6 6 l11 -12" stroke="#FFFFFF" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      {% else %}<path d="M23 16 q-4 -4 0 -8 M31 16 q-4 -4 0 -8 M39 16 q-4 -4 0 -8" stroke="var(--nc-text2)" stroke-width="2.5" fill="none" stroke-linecap="round"/>{% endif %}
+    {% endif %}
+  {% elif J == 'campeonato' %}
+    {% if status == 'atual' %}{{ anel(pct, 32, cor_anel) }}
+      <path d="M2 26 h7 M0 34 h8" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>{% endif %}
+    {% if status == 'bloqueado' %}
+      <circle cx="32" cy="32" r="24" class="j-vazio" stroke-width="2.5"/>{{ cadeado() }}
+    {% else %}
+      <circle cx="32" cy="32" r="24" fill="#FFFFFF" stroke="#0B0F14" stroke-width="3"/>
+      <path d="M32 22 l9 7 l-3.5 10.5 h-11 l-3.5 -10.5 z" fill="#111827"/>
+      <path d="M32 22 V9 M41 29 L54 25 M37.5 39.5 L45 50 M26.5 39.5 L19 50 M23 29 L10 25" stroke="#111827" stroke-width="2.5" stroke-linecap="round"/>
+      {% if status == 'concluido' %}<circle cx="49" cy="49" r="10" fill="#22C55E" stroke="#FFFFFF" stroke-width="2.5"/><path d="M44 49 l4 4 l7 -8" stroke="#FFFFFF" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>{% endif %}
+    {% endif %}
+  {% elif J == 'papelaria' %}
+    {% if status == 'atual' %}{{ anel(pct, 32, cor_anel) }}
+      <circle cx="32" cy="32" r="23" fill="url(#jGrad)" stroke="#2B2A33" stroke-width="3"/>
+      <g transform="rotate(-45 32 32)"><rect x="26" y="14" width="12" height="26" rx="2" fill="#F6D776" stroke="#2B2A33" stroke-width="2.5"/><path d="M26 40 L32 51 L38 40 Z" fill="#FFE3C2" stroke="#2B2A33" stroke-width="2.5" stroke-linejoin="round"/><rect x="26" y="14" width="12" height="6" rx="2" fill="#E0629A" stroke="#2B2A33" stroke-width="2.5"/></g>
+    {% elif status == 'concluido' %}
+      <path d="M32 6 l7.4 15 l16.6 2.4 l-12 11.7 l2.8 16.5 l-14.8 -7.8 l-14.8 7.8 l2.8 -16.5 l-12 -11.7 l16.6 -2.4 z" fill="#F6D776" stroke="#2B2A33" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M24 31 l6 6 l10 -12" stroke="#2B2A33" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    {% else %}
+      <circle cx="32" cy="32" r="24" class="j-vazio" stroke-width="2.5" stroke-dasharray="4 4"/>{{ cadeado() }}
+    {% endif %}
+  {% else %}
+    {% if status == 'concluido' %}
+      <circle cx="32" cy="32" r="26" fill="url(#jGrad)"/><path d="M20 33 l9 9 l16 -18" stroke="#FFFFFF" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    {% elif status == 'atual' %}
+      {{ anel(pct, 32, cor_anel) }}
+      <circle cx="32" cy="32" r="22" fill="url(#jGrad)"/><circle cx="32" cy="32" r="8" fill="#FFFFFF"/>
+    {% else %}
+      <circle cx="32" cy="32" r="24" class="j-vazio" stroke-width="2.5"/>{{ cadeado() }}
+    {% endif %}
+  {% endif %}
+</svg>
+{% endmacro %}
+
+<div class="nc-jornada" data-jornada="{{ J }}">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="jGrad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" style="stop-color: var(--j-a)"/><stop offset="1" style="stop-color: var(--j-b)"/>
+      </linearGradient>
+    </defs>
+  </svg>
+  <div class="nc-jornada-miolo">
+    <h2>Sua jornada</h2>
+    <p class="nc-jornada-sub">
+      {{ pontos_j }} pontos
+      {% if prox_j %} · faltam {{ prox_j.pontos_min - pontos_j }} para {{ prox_j.nome }}{% endif %}
     </p>
+    <p class="nc-jornada-sub">{{ SUBTITULO[J] }}</p>
 
-    <svg width="100%" viewBox="0 0 496 {{ altura_svg }}" style="overflow:visible;">
-      <defs>
-        <linearGradient id="trilhoFeito" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#2563EB"/><stop offset="1" stop-color="#7C3AED"/>
-        </linearGradient>
-      </defs>
+    <div class="nc-palco-j" role="region" aria-label="Trilha de níveis, da esquerda para a direita" tabindex="0">
+      <ol class="nc-trilha-j">
+        {% for n in nos %}
+          {% set ant = nos[loop.index0 - 1] if not loop.first else none %}
+          {% set p = 0 %}
+          {% set pct_n = (pct_j|int if n.status == 'atual' else (100 if n.status == 'concluido' else 0)) %}
+          {% if ant %}{% if ant.status == 'concluido' %}{% set p = 100 %}{% elif ant.status == 'atual' %}{% set p = [[pct_j|int, 0]|max, 100]|min %}{% endif %}{% endif %}
+          <li class="nc-parada estado-{{ n.status }}" style="--i: {{ loop.index0 }}"{% if n.status == 'atual' %} aria-current="step"{% endif %}>
+            {% if ant %}<span class="nc-liga" style="--p: {{ p }}%" aria-hidden="true"></span>{% endif %}
+            <div class="nc-no">{{ icone(J, n.status, pct_n) }}</div>
+            <p class="nc-parada-nome">{{ n.nome }}</p>
+            <p class="nc-parada-pontos">{{ n.pontos_min }} pontos</p>
+            <p class="nc-parada-tema">{{ ROTULOS[J][loop.index0] }}</p>
+            <span class="nc-estado-tag">{{ ESTADO_TEXTO[n.status] }}{% if n.status == 'atual' and prox_j %} · {{ pct_j|int }}%{% endif %}</span>
+            {% if n.status == 'atual' and prox_j %}<span class="nc-sr">{{ pct_j|int }}% do caminho até {{ prox_j.nome }}</span>{% endif %}
+            {% if n.itens %}
+              <ul class="nc-itens" aria-label="Libera">
+                {% for item in n.itens %}<li>+ {{ item }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
 
-      {% for n in nos %}
-        {% if not loop.first %}
-          {% set anterior = nos[loop.index0 - 1] %}
-          {% set feito = anterior.status in ('concluido', 'atual') %}
-          <line x1="{{ anterior.x }}" y1="{{ anterior.y }}" x2="{{ n.x }}" y2="{{ n.y }}"
-                stroke="{{ 'url(#trilhoFeito)' if feito else '#CBD5E1' }}"
-                stroke-width="{{ '5' if feito else '4' }}" stroke-linecap="round"
-                {% if not feito %}stroke-dasharray="2 10"{% endif %} />
-        {% endif %}
-      {% endfor %}
-
-      {% for n in nos %}
-        {% if n.status == 'concluido' %}
-          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="26" fill="url(#trilhoFeito)"/>
-          <path d="M{{ n.x - 11 }},{{ n.y }} l7,7 l13,-15" stroke="white" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        {% elif n.status == 'atual' %}
-          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="40" fill="#7C3AED" opacity="0.15"/>
-          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="40" fill="none" stroke="#7C3AED" stroke-width="2" stroke-dasharray="3 6"/>
-          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="30" fill="url(#trilhoFeito)"/>
-          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="10" fill="white"/>
-        {% else %}
-          <circle cx="{{ n.x }}" cy="{{ n.y }}" r="24" fill="none" stroke="#CBD5E1" stroke-width="2"/>
-          <rect x="{{ n.x - 8 }}" y="{{ n.y - 2 }}" width="16" height="13" rx="2" fill="none" stroke="#CBD5E1" stroke-width="2"/>
-          <path d="M{{ n.x - 5 }},{{ n.y - 2 }} v-5 a5,5 0 0 1 10,0 v5" stroke="#CBD5E1" stroke-width="2" fill="none"/>
-        {% endif %}
-        <text x="{{ n.x }}" y="{{ n.y + (58 if n.status == 'atual' else 48) }}" text-anchor="middle" font-size="12" font-weight="700"
-              style="fill:{{ 'var(--nc-text)' if n.status != 'bloqueado' else 'var(--nc-text2)' }};font-family:Inter,sans-serif;">{{ n.nome }}</text>
-        {% if n.acessorio %}
-        <text x="{{ n.x }}" y="{{ n.y + (72 if n.status == 'atual' else 62) }}" text-anchor="middle" font-size="10" font-weight="600"
-              style="fill:var(--nc-text2);font-family:Inter,sans-serif;">+ {{ n.acessorio|capitalize }}</text>
-        {% endif %}
-      {% endfor %}
-    </svg>
-
-    <div style="text-align:center;margin-top:24px;">
+    <div class="nc-jornada-rodape">
       <a href="{{ url_for('mascote_loja') }}" class="btn-outline" style="display:inline-block;padding:10px 24px;text-decoration:none;">Ver loja</a>
     </div>
   </div>

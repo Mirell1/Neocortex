@@ -21,7 +21,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div style="display:flex;flex-direction:column;gap:20px;">
           <div><label class="nc-label">E-mail</label><input name="email" type="email" placeholder="seu@email.com" class="nc-input" required></div>
-          <div><label class="nc-label">Senha</label><input id="suPassword" name="senha" type="password" placeholder="mínimo 8 caracteres" class="nc-input" minlength="6" required></div>
+          <div><label class="nc-label">Senha</label><input id="suPassword" name="senha" type="password" placeholder="mínimo 8 caracteres" class="nc-input" minlength="8" required></div>
           <div>
             <label class="nc-label">Confirmar senha</label>
             <input id="suConfirm" name="confirmar" type="password" placeholder="repita a senha" class="nc-input" required>

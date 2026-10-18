@@ -370,7 +370,7 @@ function resolveNext(question, answer) {
 
 function getPathSoFar() {
   const ids = [];
-  let id = "areas_melhoria";
+  let id = progressSequence[0];   // [CONTADOR] começa na primeira pergunta de verdade (hoje, a de acessibilidade)
   const seen = new Set();
 
   while (id && onboardingFlow[id] && !seen.has(id) && id !== "fim") {

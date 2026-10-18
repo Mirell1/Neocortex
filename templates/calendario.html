@@ -12,8 +12,8 @@
 
   <div class="nc-card" style="overflow:hidden;">
     <div id="monthView">
-      <div id="calWeekdays" style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--nc-border);"></div>
-      <div id="calGrid" style="display:grid;grid-template-columns:repeat(7,1fr);"></div>
+      <div id="calWeekdays" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-bottom:1px solid var(--nc-border);"></div>
+      <div id="calGrid" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));"></div>
     </div>
     <div id="weekView" class="hidden"></div>
     <div id="dayView" class="hidden"></div>
@@ -247,10 +247,11 @@
       const today = cell.currentMonth && sameDay(cell.date, todayDate);
       const items = cell.currentMonth ? itemsForDate(cell.date) : [];
       const isLast = idx >= cells.length - 7;
+      // [CALENDÁRIO-MÊS] uma linha com "..." na etiqueta; o título completo fica no title (passar o mouse) e ao abrir o dia
       let evHtml = items.slice(0, 2).map(function (it) {
-        return '<div style="padding:2px 6px;border-radius:4px;background:' + it.bg + ';color:' + it.color + ';font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(it.label) + '</div>';
+        return '<div title="' + escapeHtml(it.label) + '" style="padding:2px 6px;border-radius:4px;background:' + it.bg + ';color:' + it.color + ';font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(it.label) + '</div>';
       }).join('');
-      if (items.length > 2) evHtml += '<span style="font-size:10px;font-weight:600;color:var(--nc-text2);padding-left:6px;">+' + (items.length - 2) + '</span>';
+      if (items.length > 2) evHtml += '<span title="' + escapeHtml(items.slice(2).map(function (x) { return x.label; }).join('\n')) + '" style="font-size:10px;font-weight:600;color:var(--nc-text2);padding-left:6px;">+' + (items.length - 2) + '</span>';
       return '<div class="cal-cell-day" data-date="' + dateKey(cell.date) + '" style="min-height:110px;padding:10px 8px;' + ((idx + 1) % 7 !== 0 ? 'border-right:1px solid var(--nc-border);' : '') + (!isLast ? 'border-bottom:1px solid var(--nc-border);' : '') + 'background:' + (today ? 'var(--nc-hoje-tinta, rgba(37,99,235,0.04))' : 'transparent') + ';">' +
         '<div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;background:' + (today ? 'var(--nc-hoje-bg, #2563EB)' : 'transparent') + ';font-size:13px;font-weight:' + (today ? 800 : (cell.currentMonth ? 600 : 400)) + ';color:' + (today ? 'white' : (cell.currentMonth ? 'var(--nc-text)' : 'var(--nc-text2)')) + ';opacity:' + (cell.currentMonth ? 1 : 0.35) + ';">' + cell.day + '</div>' +
         '<div style="display:flex;flex-direction:column;gap:3px;">' + evHtml + '</div></div>';

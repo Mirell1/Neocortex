@@ -3,7 +3,7 @@
  *
  * Aplica NA HORA, ainda durante o cadastro, a preferência escolhida na pergunta "acessibilidade":
  *   fonte_grande    -> fonte maior (a mesma ampliação de 15% que o app usa)
- *   alto_contraste  -> cores de alto contraste (texto preto/branco, destaques escuros, bordas firmes)
+ *   alto_contraste  -> alto contraste: o do app (common.css) + azul mais escuro, destaques sólidos e bordas firmes
  *   dislexia        -> fonte Lexend, com um pouco mais de espaço entre as letras
  *   padrao          -> volta à aparência normal
  *
@@ -38,9 +38,8 @@
     '/* dislexia: Lexend e um respiro a mais entre as letras */',
     'html[data-tipografia="dislexia"] body, html[data-tipografia="dislexia"] button, html[data-tipografia="dislexia"] input, html[data-tipografia="dislexia"] textarea {',
     "  font-family: 'Lexend', 'Segoe UI', Arial, sans-serif; letter-spacing: 0.02em; }",
-    '/* alto contraste: troca as cores do onboarding por pares de alto contraste (acima de 7:1) */',
-    'html[data-contraste="alto"] { --onb-bg: #FFFFFF; --onb-surface: #FFFFFF; --onb-border: #111827; --onb-text: #000000; --onb-muted: #1F2937;',
-    '  --onb-blue: #0B2E9E; --onb-purple: #4C1D95; --onb-green: #14532D; --onb-soft-blue: rgba(11,46,158,.12); --onb-soft-purple: rgba(76,29,149,.10); }',
+    '/* alto contraste: o common.css (que esta página já carrega) troca texto, fundo, superfície e borda para preto e branco; aqui entra o que ele NÃO cobre */',
+    'html[data-contraste="alto"] { --nc-blue: #0B2E9E; }   /* o azul da marca (5,2:1) sobe para 10:1 */',
     'html[data-contraste="alto"] .onboarding-header { background: #0B1F5C; box-shadow: none; }',
     'html[data-contraste="alto"] .header-back { border-color: #FFFFFF; background: rgba(255,255,255,.18); }',
     'html[data-contraste="alto"] .onboarding-option { border-width: 2px; box-shadow: none; }',
@@ -48,15 +47,15 @@
     'html[data-contraste="alto"] .onboarding-option.selected { background: #0B2E9E; border-color: #0B2E9E; color: #FFFFFF; box-shadow: none; }',
     'html[data-contraste="alto"] .onboarding-option.selected .option-label, html[data-contraste="alto"] .onboarding-option.selected .option-description { color: #FFFFFF; }',
     'html[data-contraste="alto"] .selected .option-index { background: #FFFFFF; color: #0B2E9E; }',
-    'html[data-contraste="alto"] .option-check { border-color: #111827; }',
+    'html[data-contraste="alto"] .option-check { border-color: var(--nc-border); }',
     'html[data-contraste="alto"] .selected .option-check { background: #FFFFFF; border-color: #FFFFFF; color: #0B2E9E; }',
-    'html[data-contraste="alto"] .neo-caption, html[data-contraste="alto"] .footer-hint { color: #1F2937; }',
+    'html[data-contraste="alto"] .neo-caption, html[data-contraste="alto"] .footer-hint { color: var(--nc-text2); }',
     'html[data-contraste="alto"] .validation-message { color: #991B1B; }',
     'html[data-contraste="alto"] .onboarding-continue { background: #0B2E9E; box-shadow: none; }',
     'html[data-contraste="alto"] .onboarding-continue:disabled { background: #374151; color: #FFFFFF; opacity: 1; }',
     'html[data-contraste="alto"] .onb-obj-chip[aria-pressed="true"] { background: #0B2E9E; border-color: #0B2E9E; color: #FFFFFF; }',
     'html[data-contraste="alto"] .onb-obj-aviso { color: #7C2D12; }',
-    'html[data-contraste="alto"] :focus-visible { outline: 3px solid #000000; outline-offset: 3px; }'
+    'html[data-contraste="alto"] :focus-visible { outline: 3px solid var(--nc-text); outline-offset: 3px; }'
   ].join('\n');
   var estilo = document.createElement('style');
   estilo.setAttribute('data-onb-acessibilidade', '');

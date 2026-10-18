@@ -163,6 +163,21 @@ for arq in sorted((RAIZ / "templates").rglob("*.html")):
             sem_arquivo.setdefault(nome, set()).add(str(arq.relative_to(RAIZ)).replace("\\", "/"))
 checa("todo arquivo de static/ que os templates carregam existe", not sem_arquivo,
       "; ".join(f"static/{n} (usado em {', '.join(sorted(a))})" for n, a in sem_arquivo.items()) + "  -> copie também a pasta static/ do pacote")
+existentes_tpl = {str(p.relative_to(RAIZ / "templates")).replace("\\", "/") for p in (RAIZ / "templates").rglob("*") if p.is_file()} if (RAIZ / "templates").exists() else set()
+sem_template = {}
+for py in sorted(RAIZ.glob("*.py")):
+    if py.name.startswith("test_"):
+        continue
+    for nome in re.findall(r"render_template\(\s*['\"]([\w./ -]+)['\"]", py.read_text(encoding="utf-8", errors="replace")):
+        if nome not in existentes_tpl:
+            sem_template.setdefault(nome, set()).add(py.name)
+for arq in sorted((RAIZ / "templates").rglob("*.html")):
+    for alvo in re.findall(r"\{%-?\s*(?:extends|include|import|from)\s+['\"]([^'\"]+)['\"]", arq.read_text(encoding="utf-8", errors="replace")):
+        if alvo not in existentes_tpl:
+            sem_template.setdefault(alvo, set()).add(str(arq.relative_to(RAIZ)).replace("\\", "/"))
+checa("todo template citado (render_template, extends, include) existe em templates/", not sem_template,
+      "; ".join(f"'{n}' (citado em {', '.join(sorted(a))})" for n, a in sem_template.items()) +
+      "  -> restaure o template OU remova a rota/trecho que o cita (senão essa tela dá erro 500)")
 checa("todo url_for(...) dos templates aponta para uma rota que existe no app.py", not faltando,
       "; ".join(f"'{n}' (usada em {', '.join(sorted(a))})" for n, a in faltando.items()) +
       "  -> o template é mais novo que o app.py: copie também o app.py do mesmo pacote")

@@ -264,6 +264,18 @@ const onboardingFlow = {
     messageTitle: "Pra onde você quer ir?",
     message: "Isso ajuda o NEOCORTEX a sugerir tarefas que realmente te aproximam de algo, não só encher sua agenda.",
     optional: true,
+    next: "objetivo"
+  },
+
+  objetivo: {
+    id: "objetivo",
+    type: "textarea",
+    title: "Tem um objetivo que você gostaria de começar agora?",
+    description: "Essa etapa é opcional. Ele aparece na aba Objetivos e você pode dividir em passos depois.",
+    messageTitle: "Um primeiro passo concreto.",
+    message: "Pode ser pequeno. Ter um objetivo seu já dá ao NEOCORTEX algo para organizar com você.",
+    placeholder: "Ex.: terminar o TCC até dezembro, ler 12 livros neste ano, voltar a treinar...",
+    optional: true,
     next: "personalizacao"
   },
 
@@ -315,6 +327,7 @@ const progressSequence = [
   "tempo_organizacao",
   "tempo_neocortex",
   "objetivos",
+  "objetivo",
   "personalizacao"
 ];
 

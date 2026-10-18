@@ -13,3 +13,6 @@ analise_saida/
 
 # Windows
 desktop.ini
+
+
+*.bak*

@@ -200,6 +200,25 @@ def criar_tarefa(id_usuario, titulo, data_inicio, data_fim=None, categoria=None,
     return saida
 
 
+def conflitos_de_passos(id_usuario, passos):
+    """
+    [CONFLITO-PASSOS] Confere uma lista de passos ANTES de gravar qualquer um (cada passo: dict com titulo, inicio e fim, datetime).
+    Devolve [{'indice', 'titulo', 'inicio', 'fim', 'conflitos': [{'tipo', 'titulo', 'inicio', 'fim'}]}], só dos passos que colidem.
+    Além da agenda (agenda.conflitos_para), considera os choques ENTRE os próprios passos da lista, que a agenda ainda não conhece.
+    """
+    saida = []
+    for i, p in enumerate(passos):
+        achados = list(agenda.conflitos_para(id_usuario, p["inicio"], p["fim"]))
+        for j, q in enumerate(passos):
+            if j != i and p["inicio"] < q["fim"] and q["inicio"] < p["fim"]:
+                achados.append({"tipo": "passo", "titulo": q["titulo"],
+                                "inicio": q["inicio"].isoformat(timespec="minutes"), "fim": q["fim"].isoformat(timespec="minutes")})
+        if achados:
+            saida.append({"indice": i, "titulo": p["titulo"], "inicio": p["inicio"].isoformat(timespec="minutes"),
+                          "fim": p["fim"].isoformat(timespec="minutes"), "conflitos": achados})
+    return saida
+
+
 def atualizar_tarefa(id_usuario, id_tarefa, titulo=None, categoria=_AUSENTE, data_inicio=None,
                      data_fim=None, confirmar_conflito=False):
     """

@@ -243,6 +243,20 @@ def _confirmou_conflito():
     return CONFLITO_UI_MODO == "avisar" or request.form.get("confirmar_conflito") in _VERDADEIRO
 
 
+def _confirmou_conflito_passos(valor):
+    """[CONFLITO-PASSOS] 'avisar' grava sem perguntar; 'confirmar' (o padrão) só grava se a pessoa disse 'adicionar mesmo assim'."""
+    return CONFLITO_UI_MODO == "avisar" or valor is True or str(valor).strip().lower() in _VERDADEIRO
+
+
+def _resposta_conflito_passos(conflitos):
+    """409 com o que bate com o quê; nada foi gravado. A prévia mostra o texto e oferece 'Adicionar mesmo assim'."""
+    linhas = []
+    for c in conflitos:
+        inicio = datetime.fromisoformat(c["inicio"])
+        linhas.append(f"Passo {c['indice'] + 1} ({inicio:%d/%m %H:%M}): " + servicos.descrever_conflitos(c["conflitos"]))
+    return jsonify(erro="Há conflito de horário:\n" + "\n".join(linhas), conflitos=conflitos, exige_confirmacao=True), 409
+
+
 def _mascote_evento(tipo, **dados):
     """[MASCOTE] Guarda uma reação pra próxima página mostrar (as rotas terminam em redirect)."""
     if not GAMIFICACAO_ATIVA:
@@ -992,10 +1006,7 @@ def dashboard():
 # OBJETIVOS
 # =============================================================
 
-@app.route("/objetivos")
-def objetivos():
-    if not usuario_logado():
-        return redirect(url_for("tela_login"))
+def _render_objetivos(conflito_passo=None):   # [CONFLITO-PASSOS] a tela também serve ao aviso de conflito do passo manual
     lista = db.listar_objetivos(usuario_logado())
     fragmentos = {o["id_objetivo"]: db.listar_fragmentos_objetivo(o["id_objetivo"], usuario_logado()) for o in lista}
     # [ONBOARDING] pediu ajuda para dividir o objetivo em passos: abre a prévia uma vez (só se o objetivo é dela e ainda não tem passos)
@@ -1007,8 +1018,16 @@ def objetivos():
         objetivos=lista,
         db_fragmentos=fragmentos,
         abrir_fragmentacao=abrir,
+        conflito_passo=conflito_passo,
         **_pagina("objetivos", "Objetivos"),
     )
+
+
+@app.route("/objetivos")
+def objetivos():
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+    return _render_objetivos()
 
 
 @app.route("/objetivos/novo", methods=["POST"])
@@ -1072,15 +1091,27 @@ def editar_objetivo_rota(id_objetivo):
 def criar_fragmento_rota(id_objetivo):
     if not usuario_logado():
         return redirect(url_for("tela_login"))
-    titulo = request.form.get("titulo", "").strip()
-    data = request.form.get("data")
+    titulo = " ".join(request.form.get("titulo", "").split())[:200]
+    data = request.form.get("data", "")
     hora = request.form.get("hora") or "09:00"
-    if titulo and data:
+    if not titulo or not data:
+        return redirect(url_for("objetivos"))
+    try:
         inicio = datetime.strptime(f"{data} {hora}", "%Y-%m-%d %H:%M")
-        fim = inicio + timedelta(minutes=30)
-        db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, titulo, inicio, fim)
-        _mascote_evento("tarefa_criada")   # [MASCOTE]
-        _verificar_desbloqueio_cafeteria(usuario_logado())   # [TEMA]
+    except ValueError:
+        abort(400)   # data ou hora inválida: só chega assim por envio manual (os campos do navegador não deixam)
+    if not db.buscar_objetivo(id_objetivo, usuario_logado()):
+        abort(404)   # objetivo de outra pessoa (ou que não existe): não cria nada e não conta ponto
+    passo = {"titulo": titulo, "inicio": inicio, "fim": inicio + timedelta(minutes=30)}
+    conflitos = servicos.conflitos_de_passos(usuario_logado(), [passo])   # [CONFLITO-PASSOS]
+    if conflitos and not _confirmou_conflito_passos(request.form.get("confirmar_conflito")):
+        return _render_objetivos(conflito_passo={
+            "id_objetivo": id_objetivo, "titulo": titulo, "data": data, "hora": hora, "data_br": inicio.strftime("%d/%m/%Y"),
+            "texto": servicos.descrever_conflitos(conflitos[0]["conflitos"]),
+        })
+    db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, passo["titulo"], passo["inicio"], passo["fim"])
+    _mascote_evento("tarefa_criada")   # [MASCOTE]
+    _verificar_desbloqueio_cafeteria(usuario_logado())   # [TEMA]
     return redirect(url_for("objetivos"))
 
 
@@ -1150,20 +1181,23 @@ def _validar_propostas(lista):
     return passos, None
 
 
-def _planejar_fragmentos(id_usuario, titulos, prazo, duracao_min, ritmo, hoje=None):
+def _planejar_fragmentos(id_usuario, titulos, prazo, duracao_min, ritmo, hoje=None, a_partir_de=None):
     """Distribui os passos entre amanhã e o prazo (sem prazo: uma semana entre eles). O ritmo define o espaçamento mínimo.
     Só propõe horários que a agenda confirma como livres: sem horário livre não há proposta. Devolve (propostas, aviso)."""
     hoje = hoje or date.today()
     titulos = list(titulos)[:12]
     total = len(titulos)
+    if prazo and a_partir_de and prazo <= a_partir_de:   # [GERAR-MAIS] os passos que já existem chegam ao prazo
+        return [], "Os passos que você já tem chegam até o prazo; não sobrou dia livre depois deles. Edite o objetivo para um prazo maior."
+    base = max(hoje, a_partir_de) if a_partir_de else hoje   # [GERAR-MAIS] continua DEPOIS do último passo que já existe
     if prazo:
-        inicio_janela = hoje if prazo <= hoje else hoje + timedelta(days=1)
+        inicio_janela = base if prazo <= base else base + timedelta(days=1)
         dias = [inicio_janela + timedelta(days=i) for i in range((prazo - inicio_janela).days + 1)]   # o prazo já foi validado (até 10 anos)
         intervalo = {"curto_frequente": 1, "moderado": 2, "longo_espacado": 3}.get(ritmo, 2)
         quantos = min(total, (len(dias) - 1) // intervalo + 1)
         alvos = [0] if quantos == 1 else [round(k * (len(dias) - 1) / (quantos - 1)) for k in range(quantos)]
     else:
-        dias = [hoje + timedelta(days=i) for i in range(1, 7 * total + 8)]
+        dias = [base + timedelta(days=i) for i in range(1, 7 * total + 8)]
         quantos = total
         alvos = [7 * (k + 1) - 1 for k in range(quantos)]
     usados, slots = set(), []
@@ -1218,24 +1252,80 @@ def novo_objetivo_fragmentar_previa():
     return _previa_fragmentos(titulo_objetivo, prazo_date)
 
 
-def _previa_fragmentos(titulo_objetivo, prazo_date, existente=False):
-    """Prévia dos passos (compartilhada pelo objetivo novo e pelo existente). Nada é gravado aqui."""
+def _normalizar_titulo(texto):
+    """Minúsculas, sem acento e sem pontuação: para comparar títulos de passos."""
+    import re
+    import unicodedata
+    sem_acento = "".join(c for c in unicodedata.normalize("NFKD", str(texto).lower()) if not unicodedata.combining(c))
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", sem_acento).split())
+
+
+def _sem_repeticao(novos, existentes, limite=0.8):
+    """[GERAR-MAIS] Tira dos títulos novos os que repetem (ou quase) um passo que já existe. A IA já é instruída a não repetir; isto é a rede de segurança."""
+    import difflib
+    base = [_normalizar_titulo(t) for t in existentes]
+    mantidos = []
+    for t in novos:
+        n = _normalizar_titulo(t)
+        palavras = set(n.split())
+        repetido = False
+        for b in base:
+            parecidas = len(palavras & set(b.split())) / max(1, len(palavras | set(b.split())))
+            if n == b or difflib.SequenceMatcher(None, n, b).ratio() >= limite or parecidas >= limite:
+                repetido = True
+                break
+        if not repetido:
+            mantidos.append(t)
+    return mantidos
+
+
+def _mensagem_erro_ia(erro):
+    """[ERRO-IA] Traduz o erro do Gemini numa mensagem que a pessoa consiga usar; o detalhe técnico vai para o terminal."""
+    codigo = getattr(erro, "code", None)
+    texto = (str(getattr(erro, "status", "") or "") + " " + str(erro)).upper()
+    if codigo == 429 or "RESOURCE_EXHAUSTED" in texto:
+        return "A IA atingiu o limite de uso por enquanto. Espere cerca de um minuto e tente de novo."
+    if codigo in (500, 502, 503, 504) or "UNAVAILABLE" in texto:
+        return "A IA está sobrecarregada agora. Tenta de novo em instantes."
+    if codigo in (401, 403) or "API_KEY" in texto or "API KEY" in texto or "PERMISSION_DENIED" in texto:
+        return "A IA não aceitou a chave de acesso. Avise quem cuida da configuração."
+    if codigo == 404 or "NOT_FOUND" in texto:
+        return "O modelo de IA configurado não foi encontrado. Avise quem cuida da configuração."
+    return "Não consegui falar com a IA agora. Tenta de novo em instantes."
+
+
+def _previa_fragmentos(titulo_objetivo, prazo_date, existente=False, ja_existentes=None):
+    """Prévia dos passos (compartilhada pelo objetivo novo e pelo existente). Nada é gravado aqui.
+    [GERAR-MAIS] Com passos já existentes, continua DEPOIS do último, sem repetir os títulos que já existem."""
     if prazo_date and prazo_date < date.today():
         return jsonify(erro=("O prazo deste objetivo já passou. Edite o objetivo e escolha uma nova data para dividir em passos." if existente
                              else "O prazo já passou. Escolha uma data de hoje em diante.")), 400
     foco = request.form.get("foco", "geral")
     ritmo = request.form.get("ritmo", "moderado")
     duracao_min = 60 if ritmo == "longo_espacado" else 30
-    quantidade = calcular_quantidade_fragmentos(prazo_date)
+    ativos = [f for f in (ja_existentes or []) if f.get("status") != "cancelada"]
+    titulos_existentes = [f["titulo"] for f in ativos]
+    datas = [f["data_inicio"].date() if hasattr(f["data_inicio"], "date") else f["data_inicio"] for f in ativos if f.get("data_inicio")]
+    a_partir_de = max(datas) if datas else None
+    quantidade = calcular_quantidade_fragmentos(prazo_date, hoje=max(date.today(), a_partir_de) if a_partir_de else None)
 
     try:
-        titulos = ai.gerar_titulos_fragmentos(titulo_objetivo, prazo_date, foco, ritmo, quantidade)
-    except Exception:
-        return jsonify(erro="Não consegui falar com a IA agora. Tenta de novo em instantes."), 503
+        pedido_extra = {"existentes": titulos_existentes[-30:]} if titulos_existentes else {}
+        titulos = ai.gerar_titulos_fragmentos(titulo_objetivo, prazo_date, foco, ritmo, quantidade, **pedido_extra)
+    except Exception as erro_ia:
+        chave = os.getenv("GEMINI_API_KEY", "")   # [ERRO-IA] antes o erro real nunca aparecia no terminal
+        detalhe = str(erro_ia).replace(chave, "***") if chave else str(erro_ia)
+        app.logger.error("Falha ao pedir os passos à IA: %s (code=%s, status=%s): %s",
+                         type(erro_ia).__name__, getattr(erro_ia, "code", None), getattr(erro_ia, "status", None), detalhe[:500])
+        return jsonify(erro=_mensagem_erro_ia(erro_ia)), 503
     if not titulos:
         return jsonify(erro="A IA não conseguiu gerar os fragmentos. Tenta de novo."), 502
+    if titulos_existentes:
+        titulos = _sem_repeticao(titulos, titulos_existentes)
+        if not titulos:
+            return jsonify(erro="A IA só repetiu passos que você já tem. Tente outro foco ou ritmo."), 409
 
-    propostas, aviso = _planejar_fragmentos(usuario_logado(), titulos, prazo_date, duracao_min, ritmo)
+    propostas, aviso = _planejar_fragmentos(usuario_logado(), titulos, prazo_date, duracao_min, ritmo, a_partir_de=a_partir_de)
     if not propostas:
         return jsonify(erro=aviso), 409
     return jsonify(propostas=propostas, aviso=aviso)
@@ -1258,6 +1348,9 @@ def novo_objetivo_fragmentar_confirmar():
     passos, erro = _validar_propostas(dados.get("propostas"))
     if erro:
         return jsonify(erro=erro), 400      # nada foi criado: a lista inteira é conferida antes de gravar
+    conflitos = servicos.conflitos_de_passos(usuario_logado(), passos)   # [CONFLITO-PASSOS]
+    if conflitos and not _confirmou_conflito_passos(dados.get("confirmar_conflito")):
+        return _resposta_conflito_passos(conflitos)      # nada foi criado (nem o objetivo)
 
     id_objetivo = db.criar_objetivo(usuario_logado(), titulo_objetivo, prazo=prazo_str)
     for p in passos:
@@ -1277,13 +1370,14 @@ def fragmentar_objetivo_previa(id_objetivo):
         return jsonify(erro="objetivo não encontrado"), 404
     prazo = objetivo["prazo"]
     prazo_date = prazo.date() if hasattr(prazo, "date") else prazo
+    ja_existentes = db.listar_fragmentos_objetivo(id_objetivo, usuario_logado())   # [GERAR-MAIS]
     if prazo_date:
-        return _previa_fragmentos(objetivo["titulo"], prazo_date, existente=True)
+        return _previa_fragmentos(objetivo["titulo"], prazo_date, existente=True, ja_existentes=ja_existentes)
     try:
         prazo_date = _prazo_date(request.form.get("prazo"))      # vazio -> None (sem prazo: 4 passos, uma semana entre eles)
     except ValueError:
         return jsonify(erro="Prazo inválido. Escolha uma data de hoje em diante."), 400
-    return _previa_fragmentos(objetivo["titulo"], prazo_date)
+    return _previa_fragmentos(objetivo["titulo"], prazo_date, ja_existentes=ja_existentes)
 
 
 @app.route("/objetivos/<int:id_objetivo>/fragmentar/confirmar", methods=["POST"])
@@ -1301,6 +1395,9 @@ def fragmentar_objetivo_confirmar(id_objetivo):
         return jsonify(erro="Prazo inválido."), 400
     if prazo_escolhido and prazo_escolhido < date.today().isoformat():
         return jsonify(erro="O prazo já passou. Escolha uma data de hoje em diante."), 400
+    conflitos = servicos.conflitos_de_passos(usuario_logado(), passos)   # [CONFLITO-PASSOS]
+    if conflitos and not _confirmou_conflito_passos(request.args.get("confirmar_conflito")):
+        return _resposta_conflito_passos(conflitos)      # nada foi criado nem alterado (nem o prazo)
     if prazo_escolhido and not objetivo["prazo"]:
         db.atualizar_objetivo(id_objetivo, usuario_logado(), prazo=prazo_escolhido)   # o prazo escolhido na janela passa a ser o do objetivo
     for p in passos:

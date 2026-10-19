@@ -574,6 +574,7 @@ def atualizar_tarefa(id_tarefa, id_usuario, **campos):
                 """,
                 valores,
             )
+            linhas_alteradas = cur.rowcount   # [REAGENDAMENTO] guardar já: os comandos abaixo (evento, recomendações) mudam o cur.rowcount
 
             novo_inicio = _como_datetime(campos.get("data_inicio", antes["data_inicio"]))
             novo_fim = _como_datetime(campos.get("data_fim", antes["data_fim"]))
@@ -590,7 +591,7 @@ def atualizar_tarefa(id_tarefa, id_usuario, **campos):
                 _registrar_evento(cur, id_tarefa, "cancelou")
                 _resolver_recomendacoes_da_tarefa(cur, id_tarefa, "recusou", "cancelada")
 
-            return cur.rowcount
+            return linhas_alteradas
 
 
 def cancelar_tarefa(id_tarefa, id_usuario):
@@ -1157,6 +1158,7 @@ def criar_fragmento_objetivo(id_usuario, id_objetivo, titulo, data_inicio, data_
                 (id_usuario, titulo, data_inicio, data_fim),
             )
             id_tarefa = cur.fetchone()["id_tarefa"]
+            _registrar_evento(cur, id_tarefa, "criou", {"origem": "manual"})   # [CONFLITO-PASSOS] igual a db.criar_tarefa: o histórico passa a ver o passo
             cur.execute(
                 "INSERT INTO tarefa_objetivos (id_tarefa, id_objetivo) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (id_tarefa, id_objetivo),

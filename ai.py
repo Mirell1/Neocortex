@@ -1262,19 +1262,28 @@ def responder(id_usuario, mensagem, historico=None):
 
 
 
-def gerar_titulos_fragmentos(titulo_objetivo, prazo, foco, ritmo, quantidade):
+def gerar_titulos_fragmentos(titulo_objetivo, prazo, foco, ritmo, quantidade, existentes=None):
     """
     Única chamada ao Gemini por fragmentação: só os TÍTULOS, sem data/hora —
     isso é responsabilidade do decisao.py (determinístico).
+    [GERAR-MAIS] Com 'existentes' (títulos dos passos que o objetivo já tem), pede passos NOVOS que continuam a progressão.
     """
     prazo_texto = prazo.isoformat() if prazo else "sem prazo definido"
+    ja_existem = ""
+    if existentes:
+        ja_existem = ("Passos que JÁ existem neste objetivo (NÃO repita, não reescreva e não parafraseie nenhum deles):\n"
+                      + "\n".join(f"- {str(t)[:60]}" for t in existentes) + "\n\n")
+        pedido = (f"Crie exatamente {quantidade} passos NOVOS e concretos que CONTINUAM a progressão depois do último passo "
+                  f"que já existe (ainda mais avançados). Cada passo é uma ação específica, nunca uma categoria vaga.\n\n")
+    else:
+        pedido = (f"Divida esse objetivo em exatamente {quantidade} passos concretos, em ordem lógica de progressão "
+                  f"(do mais básico ao mais avançado). Cada passo é uma ação específica, nunca uma categoria vaga.\n\n")
     prompt = (
         f'Objetivo do usuário: "{titulo_objetivo}"\n'
         f"Prazo: {prazo_texto}\n"
         f"Foco principal escolhido: {foco}\n"
         f"Ritmo preferido: {ritmo}\n\n"
-        f"Divida esse objetivo em exatamente {quantidade} passos concretos, em ordem lógica de progressão "
-        f"(do mais básico ao mais avançado). Cada passo é uma ação específica, nunca uma categoria vaga.\n\n"
+        + ja_existem + pedido +
         f"Responda SOMENTE com um JSON: uma lista de {quantidade} strings, cada uma um título curto "
         f"(máximo 60 caracteres), sem numeração, sem texto além do JSON."
     )

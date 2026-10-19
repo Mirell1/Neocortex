@@ -3,6 +3,21 @@
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <div style="padding:32px;">
   <div style="display:flex;flex-direction:column;gap:14px;">
+    {% if conflito_passo %}
+    <div class="nc-card" role="alert" style="padding:18px 24px;border:2px solid #B45309;">
+      <p style="margin:0 0 6px;font-size:14px;font-weight:800;color:var(--nc-text);">Esse horário já está ocupado</p>
+      <p style="margin:0 0 14px;font-size:13px;line-height:1.5;color:var(--nc-text2);overflow-wrap:anywhere;">O passo “{{ conflito_passo.titulo }}” ({{ conflito_passo.data_br }} às {{ conflito_passo.hora }}) conflita com: {{ conflito_passo.texto }}.</p>
+      <form method="post" action="{{ url_for('criar_fragmento_rota', id_objetivo=conflito_passo.id_objetivo) }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="titulo" value="{{ conflito_passo.titulo }}">
+        <input type="hidden" name="data" value="{{ conflito_passo.data }}">
+        <input type="hidden" name="hora" value="{{ conflito_passo.hora }}">
+        <input type="hidden" name="confirmar_conflito" value="1">
+        <button type="submit" class="btn-primary" style="height:40px;padding:0 20px;">Adicionar mesmo assim</button>
+        <a href="{{ url_for('objetivos') }}" class="btn-outline" style="display:inline-flex;align-items:center;height:40px;padding:0 20px;text-decoration:none;">Escolher outro horário</a>
+      </form>
+    </div>
+    {% endif %}
     {% for o in objetivos %}
       {% set fragmentos = db_fragmentos.get(o.id_objetivo, []) %}
       {% set concluidos = fragmentos | selectattr('status', 'equalto', 'concluida') | list | length %}
@@ -42,7 +57,8 @@
         </div>
 
         <div id="fragmentos{{ o.id_objetivo }}" class="hidden" style="border-top:1px solid var(--nc-border);padding:16px 24px;background:var(--nc-bg);">
-          <button type="button" class="btn-outline" onclick='abrirFragmentacaoAutomatica({{ o.id_objetivo }}, {{ o.titulo|tojson }}, {{ (o.prazo is not none)|tojson }})' style="width:100%;height:40px;margin-bottom:14px;">✨ Fragmentar automaticamente</button>
+          {% set ativos = fragmentos | rejectattr('status', 'equalto', 'cancelada') | list %}   {# [GERAR-MAIS] #}
+          <button type="button" class="btn-outline" onclick='abrirFragmentacaoAutomatica({{ o.id_objetivo }}, {{ o.titulo|tojson }}, {{ (o.prazo is not none)|tojson }}, {{ ativos|length }})' style="width:100%;height:40px;margin-bottom:14px;">{% if ativos %}✨ Gerar mais passos{% else %}✨ Fragmentar automaticamente{% endif %}</button>
 
           {% for f in fragmentos %}
             <div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
@@ -111,6 +127,7 @@
   <div class="modal-box" style="max-width:480px;">
     <div id="fragAutoPerguntas">
       <h3 style="margin:0 0 18px;font-size:18px;font-weight:800;color:var(--nc-text);">Duas perguntas rápidas</h3>
+  <p id="fragAutoJaTem" class="hidden" role="status" style="margin:-6px 0 16px;font-size:13px;line-height:1.5;font-weight:600;color:var(--nc-text2);"></p>
       <div style="margin-bottom:16px;">
         <label class="nc-label">Foco principal</label>
         <div style="display:flex;flex-wrap:wrap;gap:8px;" data-chip-group="foco">
@@ -172,8 +189,11 @@
     }
   }
 
-  function abrirFragmentacaoAutomatica(idObjetivo, titulo, temPrazo) {
+  function abrirFragmentacaoAutomatica(idObjetivo, titulo, temPrazo, jaTem) {
     fragAutoContexto = { tipo: 'existente', idObjetivo };
+    const avisoJaTem = document.getElementById('fragAutoJaTem');   // [GERAR-MAIS]
+    avisoJaTem.textContent = jaTem > 0 ? 'Este objetivo já tem ' + jaTem + (jaTem === 1 ? ' passo' : ' passos') + '. Vamos acrescentar mais, sem repetir os que já existem.' : '';
+    avisoJaTem.classList.toggle('hidden', !(jaTem > 0));
     mostrarCampoPrazo(temPrazo === false);   // só pergunta o prazo se o objetivo ainda não tem
     document.getElementById('fragAutoPerguntas').classList.remove('hidden');
     document.getElementById('fragAutoPreview').classList.add('hidden');
@@ -187,6 +207,7 @@
     if (!titulo) { alert('Digite um título antes de fragmentar.'); return; }
     const prazo = document.getElementById('novoObjetivoPrazo').value || null;
     fragAutoContexto = { tipo: 'novo', titulo, prazo };
+    document.getElementById('fragAutoJaTem').classList.add('hidden');   // [GERAR-MAIS] objetivo novo: ainda não tem passos
     mostrarCampoPrazo(false);   // o prazo já foi preenchido no formulário do objetivo novo
     document.getElementById('modalObjetivo').classList.add('hidden');
     document.getElementById('fragAutoPerguntas').classList.remove('hidden');
@@ -245,13 +266,17 @@
       <p style="margin:0 0 12px;font-size:13px;line-height:1.5;color:var(--nc-text2);">Ajuste o título, o dia e a hora de cada passo, ou remova o que não quiser. Confira se o horário não bate com outro compromisso.</p>
       ${aviso ? `<p role="status" style="margin:0 0 12px;font-size:13px;line-height:1.5;font-weight:600;color:#B45309;">${esc(aviso)}</p>` : ''}
       <ul id="fragAutoLista" style="list-style:none;margin:0 0 12px;padding:0;max-height:300px;overflow-y:auto;"></ul>
-      <p id="fragAutoErro" role="alert" style="margin:0 0 12px;min-height:18px;font-size:13px;line-height:1.4;font-weight:600;color:#B91C1C;"></p>
+      <p id="fragAutoErro" role="alert" style="margin:0 0 12px;min-height:18px;font-size:13px;line-height:1.4;font-weight:600;color:#B91C1C;white-space:pre-line;"></p>
+      <button type="button" id="btnMesmoAssim" class="btn-outline" style="display:none;width:100%;height:44px;margin-bottom:10px;">Adicionar mesmo assim</button>
       <button type="button" id="btnConfirmarFragmentos" class="btn-primary" style="width:100%;height:48px;margin-bottom:10px;">Adicionar à agenda</button>
       <button type="button" class="btn-outline" style="width:100%;height:48px;" onclick="document.getElementById('modalFragAuto').classList.add('hidden')">Cancelar</button>
     `;
 
     const lista = document.getElementById('fragAutoLista');
     const erro = document.getElementById('fragAutoErro');
+    const mesmoAssim = document.getElementById('btnMesmoAssim');   // [CONFLITO-PASSOS]
+    let confirmarConflito = false;
+    const limparConflito = () => { confirmarConflito = false; mesmoAssim.style.display = 'none'; };
     const estilo = 'height:40px;padding:0 10px;border:1.5px solid var(--nc-border);border-radius:10px;background:var(--nc-surface, #fff);color:var(--nc-text);font:inherit;font-size:13px;box-sizing:border-box;';
 
     function atualizarCabecalho() {
@@ -296,7 +321,7 @@
       remover.dataset.campo = 'remover';
       remover.textContent = '✕';
       remover.style.cssText = 'width:40px;height:40px;flex:none;border:1.5px solid var(--nc-border);border-radius:10px;background:transparent;color:var(--nc-text2);font-size:14px;font-weight:700;cursor:pointer;';
-      remover.addEventListener('click', () => { li.remove(); erro.textContent = ''; atualizarCabecalho(); });
+      remover.addEventListener('click', () => { li.remove(); erro.textContent = ''; limparConflito(); atualizarCabecalho(); });
       linha.append(dia, hora, duracao, remover);
       li.append(titulo, linha);
       lista.appendChild(li);
@@ -328,17 +353,23 @@
       const headers = { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken };
       if (fragAutoContexto.tipo === 'novo') {
         url = '/objetivos/novo/fragmentar/confirmar';
-        body = JSON.stringify({ titulo_objetivo: fragAutoContexto.titulo, prazo: fragAutoContexto.prazo, propostas: editados });
+        body = JSON.stringify({ titulo_objetivo: fragAutoContexto.titulo, prazo: fragAutoContexto.prazo, propostas: editados, confirmar_conflito: confirmarConflito });
       } else {
-        url = `/objetivos/${fragAutoContexto.idObjetivo}/fragmentar/confirmar`
-          + (fragAutoContexto.prazoEscolhido ? '?prazo=' + encodeURIComponent(fragAutoContexto.prazoEscolhido) : '');
+        const consulta = [];
+        if (fragAutoContexto.prazoEscolhido) consulta.push('prazo=' + encodeURIComponent(fragAutoContexto.prazoEscolhido));
+        if (confirmarConflito) consulta.push('confirmar_conflito=1');
+        url = `/objetivos/${fragAutoContexto.idObjetivo}/fragmentar/confirmar` + (consulta.length ? '?' + consulta.join('&') : '');
         body = JSON.stringify(editados);
       }
 
       try {
         const resp = await fetch(url, { method: 'POST', headers, body });
         const dados = await resp.json();
-        if (!resp.ok) { erro.textContent = dados.erro || 'Não foi possível adicionar os passos.'; botao.disabled = false; botao.textContent = 'Adicionar à agenda'; return; }
+        if (!resp.ok) {
+          erro.textContent = dados.erro || 'Não foi possível adicionar os passos.';
+          mesmoAssim.style.display = (resp.status === 409 && dados.exige_confirmacao) ? 'block' : 'none';
+          botao.disabled = false; botao.textContent = 'Adicionar à agenda'; return;
+        }
         if (dados.redirect) window.location.href = dados.redirect;
       } catch (e) {
         erro.textContent = 'Não foi possível conectar ao servidor.';
@@ -346,6 +377,8 @@
         botao.textContent = 'Adicionar à agenda';
       }
     });
+    mesmoAssim.addEventListener('click', () => { confirmarConflito = true; document.getElementById('btnConfirmarFragmentos').click(); });
+    lista.addEventListener('input', limparConflito);   // mudou o dia ou a hora: confere de novo, sem herdar o "mesmo assim"
   }
 </script>
 {% if abrir_fragmentacao %}

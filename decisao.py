@@ -19,78 +19,190 @@ import db
 JANELA_VINCULO_SUGESTAO_H = 3   # sugestão de horário só vira "recomendação aceita" se a tarefa for criada em até N h
 MAX_CANDIDATAS_AGORA = 3
 HORIZONTE_PROXIMA_H = 3         # "começa já, já" = próximas 3 horas
+# [APRENDIZADO-APLICADO] folga reservada DEPOIS da tarefa, pelo atraso e pelo adiamento que a própria pessoa tem
+FOLGA_ATRASO_ACIONA_MIN = 10    # só reserva folga se o atraso mediano for de pelo menos 10 min
+FOLGA_PASSO_MIN = 15            # a folga é arredondada para cima de 15 em 15 min
+FOLGA_MAX_MIN = 60              # teto: nunca reserva mais que 1 hora
+ADIAMENTO_ALTO = 0.4            # adiou 40% ou mais das tarefas recentes
+FOLGA_EXTRA_ADIAMENTO_MIN = 15  # folga a mais para quem adia muito
+DESCANSO_MIN_LIVRE = 30         # só convida para um hobby se houver pelo menos 30 min livres
+# [CRONOMETRO] margem de preparo ANTES da tarefa, pelo atraso que a pessoa tem para COMEÇAR (medido pelo cronômetro opcional)
+PREPARO_ACIONA_MIN = 10         # só reserva margem se ela costuma começar 10 min ou mais depois do horário marcado
+PREPARO_MAX_MIN = 60            # teto: nunca reserva mais que 1 hora
 
 
-def _contexto_aprendido(id_usuario):
-    """Padrões e taxas relevantes para escolher horário (cada item diz de onde vem)."""
+def _contexto_aprendido(id_usuario, categoria=None):
+    """Padrões e taxas relevantes para escolher horário (cada item diz de onde vem).
+    [APRENDIZADO-APLICADO] Com categoria, traz também o que se aprendeu SOBRE ela (ex.: estudo)."""
     padroes = {p["tipo_padrao"]: p for p in db.listar_padroes(id_usuario)}
     metricas = {m["nome_metrica"]: float(m["valor"]) for m in db.listar_metricas(id_usuario)}
     return {
         "observado": padroes.get(aprendizado.PADRAO_PERIODO_OBSERVADO),
         "declarado": agenda.normalizar_periodo((padroes.get("energia") or {}).get("valor")),
         "metricas": metricas,
+        "categoria": categoria,
+        "observado_categoria": padroes.get(f"{aprendizado.PADRAO_PERIODO_OBSERVADO}:{categoria}") if categoria else None,
     }
 
 
 def _pontuar(periodo, ctx):
-    """Pontuação de um período do dia + as razões, na ordem em que pesam."""
+    """Pontuação de um período do dia + as razões, na ordem em que pesam.
+    [APRENDIZADO-APLICADO] Para uma categoria, o que se aprendeu sobre ELA vale mais que o geral."""
     pontos, base = 0.0, []
-    obs = ctx["observado"]
+    categoria = ctx.get("categoria")
+    obs_cat = ctx.get("observado_categoria")
+    obs = obs_cat or ctx["observado"]
+    escopo = f" nas suas tarefas de {categoria}" if obs_cat and categoria else ""
     if obs and obs.get("valor") == periodo:
         if obs.get("confianca") in ("media", "alta"):
             pontos += 2
-            base.append(f"período em que você mais conclui (observado, confiança {obs['confianca']})")
+            base.append(f"período em que você mais conclui{escopo} (observado, confiança {obs['confianca']})")
         else:
             pontos += 1
-            base.append("período em que você tende a concluir (observado, confiança baixa)")
+            base.append(f"período em que você tende a concluir{escopo} (observado, confiança baixa)")
     if ctx["declarado"] == periodo:
         pontos += 1
         base.append("período de energia que você declarou")
-    taxa = ctx["metricas"].get(f"taxa_conclusao_{periodo}")
+    taxa_cat = ctx["metricas"].get(f"taxa_conclusao_{categoria}_{periodo}") if categoria else None
+    taxa = taxa_cat if taxa_cat is not None else ctx["metricas"].get(f"taxa_conclusao_{periodo}")
     if taxa is not None:
         pontos += taxa
-        base.append(f"você concluiu {taxa:.0%} das tarefas agendadas nesse período")
+        de = f" de {categoria}" if taxa_cat is not None else ""
+        base.append(f"você concluiu {taxa:.0%} das tarefas{de} agendadas nesse período")
     return pontos, base
 
 
 # ============================================================
 # SUGERIR HORÁRIOS
 # ============================================================
-def sugerir_horarios(id_usuario, dia, duracao_min=60, agora=None, max_sugestoes=3):
+def _descontar(livres, reservas):
+    """[REORGANIZAR] Tira das janelas livres os intervalos já reservados por outras propostas (pares (ini, fim) de datetime)."""
+    for r_ini, r_fim in reservas:
+        novas = []
+        for ini, fim in livres:
+            if r_fim <= ini or r_ini >= fim:
+                novas.append((ini, fim))
+                continue
+            if ini < r_ini:
+                novas.append((ini, r_ini))
+            if r_fim < fim:
+                novas.append((r_fim, fim))
+        livres = novas
+    return livres
+
+
+def _folga_aprendida(ctx):
+    """[APRENDIZADO-APLICADO] Folga (min) a reservar DEPOIS da tarefa, pelo que a pessoa costuma levar a mais e adiar.
+    [CRONOMETRO] Com o cronômetro, vale o tempo realmente medido; sem ele, o atraso do clique em concluir.
+    Devolve (folga, motivos). Sem evidência suficiente (as métricas só existem com dados), devolve (0, [])."""
+    m = ctx["metricas"]
+    folga, motivos = 0, []
+    medido = m.get("excesso_duracao_mediano_min")
+    if medido is not None:
+        if medido >= FOLGA_ATRASO_ACIONA_MIN:
+            folga += -(-int(round(medido)) // FOLGA_PASSO_MIN) * FOLGA_PASSO_MIN
+            motivos.append(f"você costuma levar ~{medido:.0f} min a mais que o previsto (medido pelo cronômetro)")
+    else:
+        atraso = m.get("atraso_mediano_min")
+        if atraso is not None and atraso >= FOLGA_ATRASO_ACIONA_MIN:
+            folga += -(-int(round(atraso)) // FOLGA_PASSO_MIN) * FOLGA_PASSO_MIN
+            motivos.append(f"você costuma terminar ~{atraso:.0f} min depois do previsto")
+    adiamento = m.get("taxa_adiamento")
+    if adiamento is not None and adiamento >= ADIAMENTO_ALTO:
+        folga += FOLGA_EXTRA_ADIAMENTO_MIN
+        motivos.append(f"você adiou {adiamento:.0%} das tarefas recentes")
+    return min(folga, FOLGA_MAX_MIN), motivos
+
+
+def _margem_preparo(ctx):
+    """[CRONOMETRO] Minutos livres a deixar ANTES da tarefa, pelo atraso que a pessoa costuma ter para começar. (0, []) sem medição."""
+    atraso = ctx["metricas"].get("atraso_inicio_mediano_min")
+    if atraso is None or atraso < PREPARO_ACIONA_MIN:
+        return 0, []
+    margem = min(-(-int(round(atraso)) // FOLGA_PASSO_MIN) * FOLGA_PASSO_MIN, PREPARO_MAX_MIN)
+    return margem, [f"você costuma começar ~{atraso:.0f} min depois do horário marcado (medido pelo cronômetro)"]
+
+
+def _candidatos(livres, duracao, ctx, folga_min, preparo_min=0):
+    """Todos os inícios possíveis (a cada PASSO_MIN) em que a tarefa, a folga depois e a margem de preparo antes cabem na janela livre."""
+    total = duracao + timedelta(minutes=folga_min)
+    preparo = timedelta(minutes=preparo_min)
+    candidatos = []
+    for ini, fim in livres:
+        primeiro = ini if (not preparo_min or ini.time() <= agenda.INICIO_DIA) else ini + preparo   # o começo do dia não precisa de preparo
+        t = agenda.arredondar_para_cima(primeiro)
+        while t + total <= fim:
+            pontos, base = _pontuar(agenda.periodo_da_hora(t.hour), ctx)
+            candidatos.append((pontos, t, base))
+            t += timedelta(minutes=agenda.PASSO_MIN)
+    return candidatos
+
+
+def sugerir_horarios(id_usuario, dia, duracao_min=60, agora=None, max_sugestoes=3, categoria=None, reservas=None, usar_folga=True):
     """
     Janelas livres do dia (descontando tarefas, compromissos, rotina,
     restrições e disponibilidade), ordenadas pelo que se SABE do usuário.
     Cada sugestão diz em que se baseia. Sem dados, só ordena por horário.
+
+    [APRENDIZADO-APLICADO]
+      categoria  : usa o que se aprendeu SOBRE aquela categoria (ex.: estudo), quando houver.
+      reservas   : intervalos (ini, fim) já tomados por outras propostas; não são oferecidos de novo.
+      usar_folga : reserva uma folga DEPOIS da tarefa quando o atraso e o adiamento da pessoa pedem
+                   (se não couber, oferece sem a folga e avisa).
+    [CRONOMETRO]
+      com o cronômetro opcional, a folga usa o tempo realmente medido e, se a pessoa costuma começar depois do horário,
+      deixa também uma margem livre ANTES (também desligada por usar_folga=False; se não couber, oferece sem ela e avisa).
     """
     agora = agora or datetime.now()
     duracao = timedelta(minutes=duracao_min)
     blocos = agenda.blocos_ocupados(id_usuario, dia)
     apos = agenda.arredondar_para_cima(agora) if dia == agora.date() else None
     livres = agenda.janelas_livres(blocos, dia, apos)
+    if reservas:
+        livres = _descontar(livres, reservas)
 
-    ctx = _contexto_aprendido(id_usuario)
-    candidatos = []
-    for ini, fim in livres:
-        t = agenda.arredondar_para_cima(ini)
-        while t + duracao <= fim:
-            pontos, base = _pontuar(agenda.periodo_da_hora(t.hour), ctx)
-            candidatos.append((pontos, t, base))
-            t += timedelta(minutes=agenda.PASSO_MIN)
+    ctx = _contexto_aprendido(id_usuario, categoria)
+    folga, motivos_folga = _folga_aprendida(ctx) if usar_folga else (0, [])
+    preparo, motivos_preparo = _margem_preparo(ctx) if usar_folga else (0, [])
+    folga_desejada, preparo_desejado = folga, preparo
+    candidatos = _candidatos(livres, duracao, ctx, folga, preparo)
+    sem_folga = sem_preparo = False
+    if not candidatos and preparo:      # não coube com a margem de preparo: oferece sem ela (mantém a folga) e avisa
+        preparo, sem_preparo = 0, True
+        candidatos = _candidatos(livres, duracao, ctx, folga, 0)
+    if not candidatos and folga:        # não coube com a folga: oferece sem ela e avisa
+        candidatos, folga, sem_folga = _candidatos(livres, duracao, ctx, 0, 0), 0, True
 
     candidatos.sort(key=lambda c: (-c[0], c[1]))
+    folga_td, preparo_td = timedelta(minutes=folga), timedelta(minutes=preparo)
     escolhidas = []
     for pontos, t, base in candidatos:
-        if all(t >= e["_fim"] or t + duracao <= e["_ini"] for e in escolhidas):
-            escolhidas.append({"_ini": t, "_fim": t + duracao, "periodo": agenda.periodo_da_hora(t.hour), "base": base})
+        if all(t - preparo_td >= e["_fim"] or t + duracao + folga_td <= e["_ini"] for e in escolhidas):
+            escolhidas.append({"_ini": t - preparo_td, "_fim": t + duracao + folga_td, "_inicio": t, "_fim_tarefa": t + duracao,
+                               "periodo": agenda.periodo_da_hora(t.hour), "base": base})
         if len(escolhidas) == max_sugestoes:
             break
 
-    sugestoes = [
-        {"inicio": e["_ini"].isoformat(timespec="minutes"), "fim": e["_fim"].isoformat(timespec="minutes"),
-         "periodo": e["periodo"], "base": e["base"] or ["horário livre (ainda sem histórico para personalizar)"]}
-        for e in escolhidas
-    ]
+    sugestoes = []
+    for e in escolhidas:
+        com_extras = bool(folga or sem_folga or preparo or sem_preparo)
+        base = list(e["base"]) or (["horário livre"] if com_extras else ["horário livre (ainda sem histórico para personalizar)"])
+        item = {"inicio": e["_inicio"].isoformat(timespec="minutes"), "fim": e["_fim_tarefa"].isoformat(timespec="minutes"),
+                "periodo": e["periodo"], "base": base}
+        if preparo:
+            item["preparo_min"] = preparo
+            base.append(f"deixei {preparo} min livres antes ({' e '.join(motivos_preparo)})")
+        elif sem_preparo:
+            base.append(f"não coube a margem de {preparo_desejado} min de preparo que você costuma precisar")
+        if folga:
+            item["folga_min"] = folga
+            base.append(f"reservei {folga} min de folga depois ({' e '.join(motivos_folga)})")
+        elif sem_folga:
+            base.append(f"não coube a folga de {folga_desejada} min que você costuma precisar")
+        sugestoes.append(item)
     saida = {"dia": dia.isoformat(), "duracao_min": duracao_min, "sugestoes": sugestoes}
+    if categoria:
+        saida["categoria"] = categoria
     if not sugestoes:
         saida["observacao"] = "Não há janela livre desse tamanho nesse dia."
         return saida
@@ -99,7 +211,9 @@ def sugerir_horarios(id_usuario, dia, duracao_min=60, agora=None, max_sugestoes=
     db.salvar_decisao(
         id_usuario,
         f"sugestão de horário para {dia.isoformat()} ({duracao_min} min)",
-        "janelas livres; padrão observado; energia declarada; taxa de conclusão por período",
+        "janelas livres; padrão observado; energia declarada; taxa de conclusão por período"
+        + ("; folga pelo atraso típico" if folga else "") + ("; margem de preparo pelo cronômetro" if preparo else "")
+        + (f"; aprendizado da categoria {categoria}" if categoria else ""),
         "SUGESTOES:" + ";".join(s["inicio"] for s in sugestoes),
     )
     return saida
@@ -129,6 +243,27 @@ def vincular_sugestao_a_tarefa(id_usuario, id_tarefa, data_inicio, agora=None):
 # ============================================================
 # RECOMENDAR TAREFA PARA AGORA
 # ============================================================
+def _sugestao_descanso(id_usuario, agora, situacao):
+    """[BEM-ESTAR] Sem nada urgente e com tempo livre, convida para um hobby do perfil.
+    É só um convite (nunca cria nada) e nunca atrapalha a recomendação: qualquer falha aqui devolve None."""
+    try:
+        if situacao.get("atual") or not (agenda.INICIO_DIA <= agora.time() < agenda.FIM_DIA):
+            return None
+        livres = situacao.get("minutos_livres_ate_proximo")
+        if livres is not None and livres < DESCANSO_MIN_LIVRE:
+            return None
+        hobbies = [h["nome"] for h in db.listar_hobbies_usuario(id_usuario) if h.get("nome")]
+        if not hobbies:
+            return None
+        hobby = hobbies[(agora.toordinal() + id_usuario) % len(hobbies)]      # varia de um dia para o outro
+        tempo = f"{livres} min livres" if livres is not None else "o resto do dia livre"
+        return {"hobby": hobby, "minutos_livres": livres,
+                "texto": f"Você tem {tempo} e nada urgente. Que tal um dos seus hobbies: {hobby}?",
+                "base": ["hobby do seu perfil", "nenhuma tarefa urgente agora", tempo]}
+    except Exception:
+        return None
+
+
 def recomendar_tarefa_agora(id_usuario, agora=None):
     """
     "O que devo fazer agora?" — escolhe entre as tarefas abertas, por
@@ -218,6 +353,10 @@ def recomendar_tarefa_agora(id_usuario, agora=None):
     }
     if not candidatas:
         saida["observacao"] = "Não há tarefas abertas relevantes para agora."
+        descanso = _sugestao_descanso(id_usuario, agora, situacao)   # [BEM-ESTAR]
+        if descanso:
+            saida["sugestao_descanso"] = descanso
+            saida["observacao"] += " " + descanso["texto"]
         return saida
 
     topo = candidatas[0][2]

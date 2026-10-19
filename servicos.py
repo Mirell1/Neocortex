@@ -28,6 +28,7 @@ from datetime import datetime, timedelta
 import agenda
 import aprendizado
 import db
+import cronometro
 import decisao
 
 log = logging.getLogger("neocortex.servicos")
@@ -270,6 +271,38 @@ def atualizar_tarefa(id_usuario, id_tarefa, titulo=None, categoria=_AUSENTE, dat
             "novo_inicio": campos.get("data_inicio"), "novo_fim": campos.get("data_fim")}
 
 
+def hora_do_cronometro():
+    """[CRONOMETRO] Hora do banco (a dos eventos); se não der para obtê-la, a do servidor do app."""
+    try:
+        return db.agora_do_banco()
+    except Exception:
+        return datetime.now()
+
+
+def estado_do_cronometro(id_usuario, id_tarefa, agora=None):
+    """Estado do cronômetro opcional de uma tarefa (ver cronometro.resumir)."""
+    return cronometro.resumir(db.listar_eventos_execucao(id_tarefa, id_usuario), agora or hora_do_cronometro())
+
+
+def _fechar_cronometro(id_usuario, tarefa):
+    """
+    Se a tarefa foi cronometrada, guarda o tempo executado (base do bônus de pontos) e devolve o resumo para a tela.
+    Nunca derruba a conclusão: qualquer falha aqui só é registrada.
+    """
+    try:
+        resumo = estado_do_cronometro(id_usuario, tarefa["id_tarefa"])
+        if resumo["estado"] != "concluido":
+            return None
+        bonus = cronometro.ganha_bonus(resumo)
+        db.salvar_tempo_execucao(tarefa["id_tarefa"], id_usuario, resumo["acumulado_s"] if bonus else None)
+        previsto = max(0, int((tarefa["data_fim"] - tarefa["data_inicio"]).total_seconds() // 60))
+        return {"real_s": int(resumo["acumulado_s"]), "previsto_min": previsto, "bonus": bonus,
+                "pontos": cronometro.PONTOS_POR_TAREFA_CRONOMETRADA if bonus else 0}
+    except Exception:
+        log.exception("Falha ao fechar o cronômetro da tarefa %s", tarefa.get("id_tarefa"))
+        return None
+
+
 def concluir_tarefa(id_usuario, id_tarefa):
     tarefa = db.buscar_tarefa(int(id_tarefa), id_usuario)
     if tarefa is None:
@@ -277,8 +310,12 @@ def concluir_tarefa(id_usuario, id_tarefa):
     if tarefa["status"] == "cancelada":
         return {"sucesso": False, "erro": "Essa tarefa está cancelada."}
     db.marcar_tarefa_concluida(tarefa["id_tarefa"], id_usuario)   # duplo clique não duplica evento
+    resultado = {"sucesso": True, "id_tarefa": tarefa["id_tarefa"], "titulo": tarefa["titulo"]}
+    cron = _fechar_cronometro(id_usuario, tarefa)
+    if cron:
+        resultado["cronometro"] = cron
     _atualizar_aprendizado(id_usuario)
-    return {"sucesso": True, "id_tarefa": tarefa["id_tarefa"], "titulo": tarefa["titulo"]}
+    return resultado
 
 
 def desfazer_conclusao(id_usuario, id_tarefa):
@@ -288,8 +325,65 @@ def desfazer_conclusao(id_usuario, id_tarefa):
     if tarefa["status"] != "concluida":
         return {"sucesso": False, "erro": "Essa tarefa não está concluída."}
     db.desfazer_conclusao_tarefa(tarefa["id_tarefa"], id_usuario)
+    try:
+        db.salvar_tempo_execucao(tarefa["id_tarefa"], id_usuario, None)   # [CRONOMETRO] sem conclusão, sem tempo guardado
+    except Exception:
+        log.exception("Falha ao limpar o tempo cronometrado da tarefa %s", tarefa["id_tarefa"])
     _atualizar_aprendizado(id_usuario)
     return {"sucesso": True, "id_tarefa": tarefa["id_tarefa"], "titulo": tarefa["titulo"]}
+
+
+def _pausar_outras_em_andamento(id_usuario, exceto_id):
+    """Só há UM cronômetro rodando por pessoa: ao começar outra tarefa, a que estava rodando é pausada (e a pessoa é avisada)."""
+    pausadas = []
+    agora = hora_do_cronometro()
+    for t in db.listar_tarefas_abertas(id_usuario):
+        if t["id_tarefa"] == exceto_id or t["status"] != "em_andamento":
+            continue
+        if estado_do_cronometro(id_usuario, t["id_tarefa"], agora)["estado"] == "rodando":
+            if db.registrar_evento_cronometro(t["id_tarefa"], id_usuario, "pausou"):
+                pausadas.append(t["titulo"])
+    return pausadas
+
+
+def _transicao_do_cronometro(id_usuario, id_tarefa, acao):
+    tarefa = db.buscar_tarefa(int(id_tarefa), id_usuario)
+    if tarefa is None:
+        return _nao_encontrada()
+    if tarefa["status"] == "concluida":
+        return {"sucesso": False, "erro": "Essa tarefa já está concluída."}
+    if tarefa["status"] == "cancelada":
+        return {"sucesso": False, "erro": "Essa tarefa está cancelada."}
+    estado = estado_do_cronometro(id_usuario, tarefa["id_tarefa"])["estado"]
+    if acao == "iniciar":
+        if estado == "rodando":
+            return {"sucesso": False, "erro": "O cronômetro dessa tarefa já está rodando."}
+        tipo = "retomou" if estado == "pausado" else "iniciou"          # começar uma tarefa pausada é retomá-la
+    elif acao == "pausar":
+        if estado != "rodando":
+            return {"sucesso": False, "erro": "O cronômetro dessa tarefa não está rodando."}
+        tipo = "pausou"
+    else:
+        if estado != "pausado":
+            return {"sucesso": False, "erro": "Essa tarefa não está pausada."}
+        tipo = "retomou"
+    pausadas = [] if tipo == "pausou" else _pausar_outras_em_andamento(id_usuario, tarefa["id_tarefa"])
+    if not db.registrar_evento_cronometro(tarefa["id_tarefa"], id_usuario, tipo, None if tipo == "pausou" else "em_andamento"):
+        return {"sucesso": False, "erro": "Não foi possível mexer no cronômetro dessa tarefa."}
+    return {"sucesso": True, "id_tarefa": tarefa["id_tarefa"], "titulo": tarefa["titulo"], "evento": tipo, "pausadas": pausadas}
+
+
+def iniciar_tarefa(id_usuario, id_tarefa):
+    """[CRONOMETRO] Opcional: começa (ou retoma) o cronômetro da tarefa. A tarefa passa a 'em andamento'."""
+    return _transicao_do_cronometro(id_usuario, id_tarefa, "iniciar")
+
+
+def pausar_tarefa(id_usuario, id_tarefa):
+    return _transicao_do_cronometro(id_usuario, id_tarefa, "pausar")
+
+
+def retomar_tarefa(id_usuario, id_tarefa):
+    return _transicao_do_cronometro(id_usuario, id_tarefa, "retomar")
 
 
 def cancelar_tarefa(id_usuario, id_tarefa):

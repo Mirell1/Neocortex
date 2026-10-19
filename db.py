@@ -1319,6 +1319,76 @@ def registrar_evento_execucao(id_tarefa, id_usuario, tipo_evento):
     return linha["id_evento"]
 
 
+# ============================================================
+# CRONÔMETRO OPCIONAL  [CRONOMETRO]
+# O estado do cronômetro sai dos eventos (iniciou, pausou, retomou, concluiu): ver cronometro.py.
+# ============================================================
+def registrar_evento_cronometro(id_tarefa, id_usuario, tipo_evento, novo_status=None):
+    """
+    Grava um evento do cronômetro NA MESMA transação da mudança de status (pendente -> em_andamento ao começar).
+    Devolve True, ou None se a tarefa não existe, é de outra pessoa ou não está aberta.
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status FROM tarefas
+                WHERE id_tarefa = %s AND id_usuario = %s
+                FOR UPDATE
+                """,
+                (id_tarefa, id_usuario),
+            )
+            linha = cur.fetchone()
+            if linha is None or linha["status"] not in ("pendente", "em_andamento"):
+                return None
+            if novo_status and linha["status"] != novo_status:
+                cur.execute(
+                    "UPDATE tarefas SET status = %s WHERE id_tarefa = %s AND id_usuario = %s",
+                    (novo_status, id_tarefa, id_usuario),
+                )
+            _registrar_evento(cur, id_tarefa, tipo_evento)
+    return True
+
+
+def agora_do_banco():
+    """Hora do banco (a mesma dos eventos): o cronômetro compara com ela, e não com o relógio do servidor do app."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT LOCALTIMESTAMP AS agora")
+            return cur.fetchone()["agora"]
+
+
+_AVISOU_MIGRACAO_CRONOMETRO = False
+
+
+def _avisar_migracao_cronometro(erro):
+    global _AVISOU_MIGRACAO_CRONOMETRO
+    if not _AVISOU_MIGRACAO_CRONOMETRO:
+        _AVISOU_MIGRACAO_CRONOMETRO = True
+        import logging
+        logging.getLogger("neocortex.db").warning(
+            "Não consegui usar tarefas.tempo_execucao_s (%s). Rode neocortex_cronometro_migracao.sql. "
+            "Enquanto isso o cronômetro funciona, mas o bônus de pontos fica de fora.", erro)
+
+
+def salvar_tempo_execucao(id_tarefa, id_usuario, segundos):
+    """
+    Guarda (ou limpa, com None) o tempo executado com o cronômetro. É a base do bônus de pontos: fica na tarefa, e não nos
+    eventos, porque os eventos antigos são apagados pela política de retenção e os pontos não podem diminuir com o tempo.
+    """
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE tarefas SET tempo_execucao_s = %s WHERE id_tarefa = %s AND id_usuario = %s",
+                    (None if segundos is None else int(segundos), id_tarefa, id_usuario),
+                )
+                return cur.rowcount
+    except Exception as erro:
+        _avisar_migracao_cronometro(erro)
+        return 0
+
+
 def listar_eventos_execucao(id_tarefa, id_usuario):
     """Lista eventos de uma tarefa pertencente ao usuário."""
     with conectar() as conn:
@@ -2001,6 +2071,22 @@ def listar_dependencias_da_tarefa(id_tarefa, id_usuario):
     return [dict(linha) for linha in linhas]
 
 
+def _contar_tarefas_cronometradas(id_usuario):
+    """Tarefas concluídas com o cronômetro (o tempo executado é guardado na conclusão). Sem a coluna, devolve 0 e avisa uma vez."""
+    import cronometro
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM tarefas WHERE id_usuario = %s AND status = 'concluida' AND tempo_execucao_s >= %s",
+                    (id_usuario, cronometro.MIN_SEGUNDOS_BONUS),
+                )
+                return cur.fetchone()["n"]
+    except Exception as erro:
+        _avisar_migracao_cronometro(erro)
+        return 0
+
+
 def calcular_pontos_mascote(id_usuario):
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -2014,4 +2100,5 @@ def calcular_pontos_mascote(id_usuario):
                 (id_usuario,),
             )
             objetivos = cur.fetchone()["n"]
-    return tarefas * 10 + objetivos * 50
+    import cronometro   # [CRONOMETRO] incentivo opcional: pontos a mais por tarefa concluída com o cronômetro
+    return tarefas * 10 + objetivos * 50 + _contar_tarefas_cronometradas(id_usuario) * cronometro.PONTOS_POR_TAREFA_CRONOMETRADA

@@ -331,12 +331,13 @@ def _construir_executores(id_usuario, agora=None):
         servicos.garantir_aprendizado_atualizado(id_usuario, agora)   # só recalcula se estiver desatualizado
         return aprendizado.obter_aprendizado(id_usuario)
 
-    def sugerir_horarios(data, duracao_minutos=60):
+    def sugerir_horarios(data, duracao_minutos=60, categoria=None):
         dia = _parse_dia(data).date()
         duracao = int(duracao_minutos or 60)
         if not 5 <= duracao <= 600:
             raise ValueError("duracao_minutos precisa estar entre 5 e 600.")
-        return decisao.sugerir_horarios(id_usuario, dia, duracao, agora)
+        categoria = categoria if categoria in servicos.CATEGORIAS_VALIDAS else None   # [POR-CATEGORIA]
+        return decisao.sugerir_horarios(id_usuario, dia, duracao, agora, categoria=categoria)
 
     def recomendar_tarefa_agora():
         return decisao.recomendar_tarefa_agora(id_usuario, agora)
@@ -681,7 +682,7 @@ CONTRATO_ARGUMENTOS = {
     "consultar_agenda": "data_inicio, data_fim",
     "consultar_perfil_usuario": "sem argumentos",
     "consultar_aprendizado": "sem argumentos",
-    "sugerir_horarios": "data, duracao_minutos",
+    "sugerir_horarios": "data, duracao_minutos, categoria",
     "recomendar_tarefa_agora": "sem argumentos",
     "criar_tarefa": "titulo, data_inicio, data_fim, categoria, descricao, confirmar_conflito",
     "configurar_rotina": "descricao, hora_inicio, hora_fim, dias_semana",

@@ -31,6 +31,7 @@ import logging
 import statistics
 from datetime import datetime, timedelta
 
+import cronometro
 import db
 from periodos import JANELA_LOTE_MIN, PERIODOS, normalizar_periodo, periodo_da_hora
 
@@ -46,6 +47,9 @@ MIN_TAREFAS_PERIODO = 5         # mínimo de tarefas encerradas por período p/ 
 MIN_AMOSTRA_METRICA = 5         # mínimo para atraso mediano / taxa de adiamento
 MIN_RESULTADOS_ACEITACAO = 5    # mínimo de reações para taxa de aceitação
 HORAS_VALIDADE_TAREFA_AGORA = 6 # recomendação 'tarefa_agora' vence após N horas
+CATEGORIAS_APRENDIDAS = ("estudo", "trabalho", "hobby", "pessoal", "saude")   # [POR-CATEGORIA] "outro" não ensina nada
+MIN_TAREFAS_CRONOMETRADAS = 5       # [CRONOMETRO] abaixo disso, o ritmo medido pelo cronômetro não é confiável
+LIMITE_ATRASO_INICIO_H = 12         # começar a mais de 12 h do horário marcado não é "atraso para começar": fica de fora
 PERIODO_REF = f"ultimos_{JANELA_RECENTE_DIAS}d"
 
 PADRAO_PERIODO_OBSERVADO = "periodo_conclusao_observado"
@@ -246,6 +250,38 @@ def resolver_recomendacoes(id_usuario, agora=None):
 # ============================================================
 # 4. ORQUESTRAÇÃO
 # ============================================================
+def calcular_metricas_cronometro(tarefas, eventos, agora):
+    """
+    [CRONOMETRO] O ritmo REAL da pessoa, medido pelo cronômetro opcional (só tarefas concluídas com ele):
+      atraso_inicio_mediano_min    quando ela COMEÇA em relação ao horário marcado (positivo = começa depois)
+      excesso_duracao_mediano_min  quanto ela LEVA a mais (ou a menos, se negativo) do que o previsto
+    Só com MIN_TAREFAS_CRONOMETRADAS ciclos plausíveis. Devolve um dict com as métricas, ou None.
+    """
+    por_tarefa = {}
+    for e in eventos:
+        por_tarefa.setdefault(e["id_tarefa"], []).append(e)
+    atrasos, excessos = [], []
+    for t in tarefas:
+        if t["status"] != "concluida":
+            continue
+        resumo = cronometro.resumir(por_tarefa.get(t["id_tarefa"], []), agora)
+        if not cronometro.serve_para_aprender(resumo):
+            continue
+        previsto_min = (t["data_fim"] - t["data_inicio"]).total_seconds() / 60
+        if previsto_min <= 0:
+            continue
+        atraso_inicio = (resumo["iniciou_em"] - t["data_inicio"]).total_seconds() / 60
+        if abs(atraso_inicio) <= LIMITE_ATRASO_INICIO_H * 60:
+            atrasos.append(atraso_inicio)
+        excessos.append(resumo["acumulado_s"] / 60 - previsto_min)
+    if len(excessos) < MIN_TAREFAS_CRONOMETRADAS:
+        return None
+    saida = {"excesso_duracao_mediano_min": round(statistics.median(excessos), 1), "tarefas_cronometradas": len(excessos)}
+    if len(atrasos) >= MIN_TAREFAS_CRONOMETRADAS:
+        saida["atraso_inicio_mediano_min"] = round(statistics.median(atrasos), 1)
+    return saida
+
+
 def recalcular_aprendizado(id_usuario, agora=None):
     """
     Recalcula tudo o que dá para aprender com o histórico do usuário e
@@ -282,6 +318,28 @@ def recalcular_aprendizado(id_usuario, agora=None):
         )
     resumo["periodo_observado"] = {"acao": acao, "estado": estado}
 
+    # --- [POR-CATEGORIA] o mesmo aprendizado, separado por categoria (estudo, trabalho...): o horário em que a pessoa
+    #     rende pode ser outro para cada tipo de tarefa. Só entra com evidência suficiente, com as mesmas regras do geral.
+    metricas_categoria = {}
+    por_categoria = {}
+    for t in tarefas:
+        if t.get("categoria") in CATEGORIAS_APRENDIDAS:
+            por_categoria.setdefault(t["categoria"], []).append(t)
+    resumo["por_categoria"] = {}
+    for cat, ts in por_categoria.items():
+        chave = f"{PADRAO_PERIODO_OBSERVADO}:{cat}"
+        concl_cat = [t["concluido_em"] for t in ts if t["status"] == "concluida" and t["concluido_em"]]
+        padrao_cat = db.obter_padrao(id_usuario, chave)
+        atual_cat = None
+        if padrao_cat and padrao_cat.get("confianca"):
+            atual_cat = {"valor": padrao_cat["valor"], "confianca": padrao_cat["confianca"], "evidencias": padrao_cat.get("evidencias")}
+        acao_cat, estado_cat = decidir_atualizacao(atual_cat, calcular_periodo_observado(concl_cat, agora))
+        if acao_cat in ("criar", "reforcar", "trocar"):
+            db.salvar_padrao_observado(id_usuario, chave, estado_cat["valor"], estado_cat["confianca"], estado_cat["n"])
+        resumo["por_categoria"][cat] = {"acao": acao_cat, "estado": estado_cat}
+        for periodo, d in calcular_taxas_por_periodo(ts, agora).items():
+            metricas_categoria[f"taxa_conclusao_{cat}_{periodo}"] = d["taxa"]
+
     # --- métricas (só com dados suficientes) ---
     metricas = {}
     for periodo, d in calcular_taxas_por_periodo(tarefas, agora).items():
@@ -298,6 +356,10 @@ def recalcular_aprendizado(id_usuario, agora=None):
     if total_reacoes >= MIN_RESULTADOS_ACEITACAO:
         metricas["taxa_aceitacao_recomendacoes"] = round(contagem.get("aceitou", 0) / total_reacoes, 4)
 
+    cronometrado = calcular_metricas_cronometro(tarefas, eventos, agora)   # [CRONOMETRO]
+    if cronometrado:
+        metricas.update(cronometrado)
+    metricas.update(metricas_categoria)   # [POR-CATEGORIA]
     for nome, valor in metricas.items():
         db.salvar_metrica_unica(id_usuario, nome, valor, PERIODO_REF)
     resumo["metricas"] = metricas

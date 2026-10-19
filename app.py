@@ -26,6 +26,7 @@ import agenda
 import ai
 import db
 import servicos
+import cronometro
 import decisao
 import seguranca
 
@@ -724,12 +725,32 @@ def tarefas_filtradas(id_usuario, filtro, categoria=None):
     return lista
 
 
+def _anexar_cronometro(tarefas):
+    """[CRONOMETRO] Acrescenta a cada tarefa o estado do cronômetro opcional (só quem está em andamento precisa de consulta)
+    e se vale oferecer 'Começar'. Nunca derruba a tela de Tarefas."""
+    hoje = datetime.now().date()
+    agora = None
+    for t in tarefas:
+        t["cronometro"] = None
+        t["pode_comecar"] = t["status"] == "pendente" and t["data_inicio"].date() <= hoje
+        if t["status"] == "em_andamento":
+            try:
+                agora = agora or servicos.hora_do_cronometro()
+                estado = servicos.estado_do_cronometro(usuario_logado(), t["id_tarefa"], agora)
+                t["cronometro"] = {**estado, "rotulo": cronometro.rotulo_tempo(estado["acumulado_s"])}
+            except Exception:
+                t["cronometro"] = None
+    return tarefas
+
+
 def _render_tarefas(filtro="hoje", categoria_filtro="todas", **extra):
     return render_template(
         "tarefas.html",
-        tarefas=tarefas_filtradas(usuario_logado(), filtro, categoria_filtro),
+        tarefas=_anexar_cronometro(tarefas_filtradas(usuario_logado(), filtro, categoria_filtro)),
+        aviso_cronometro=session.pop("cronometro_aviso", None),   # [CRONOMETRO]
         filtro=filtro,
         categoria_filtro=categoria_filtro,
+        n_atrasadas=_contar_atrasadas_para_reorganizar(),   # [REORGANIZAR]
         **_pagina("tarefas", "Tarefas", **extra),
     )
 
@@ -785,6 +806,131 @@ def tarefas():
     if categoria not in ("todas", "trabalho", "estudo", "hobby", "pessoal", "saude", "outro"):
         categoria = "todas"
     return _render_tarefas(request.args.get("filtro", "hoje"), categoria_filtro=categoria)
+
+
+# ============================================================
+# REORGANIZAR ATRASADAS  [REORGANIZAR]
+# O que ficou para trás ganha novos horários livres, escolhidos com o que o sistema aprendeu (período em que a pessoa rende,
+# por categoria, folga pelo atraso). Sempre com PRÉVIA editável e conferência de conflito; nada muda sem confirmar.
+# ============================================================
+REORG_MAX_TAREFAS = 12
+REORG_JANELA_ATRASO_DIAS = 14     # só olha o que atrasou nas últimas 2 semanas
+REORG_DIAS_A_FRENTE = 14          # procura horário livre nas próximas 2 semanas
+_REORG_CATEGORIAS = ("estudo", "trabalho", "hobby", "pessoal", "saude")
+
+
+def _atrasadas_para_reorganizar(id_usuario, agora):
+    """Tarefas abertas com o prazo vencido (sem dependência pendente), mais prioritárias e mais antigas primeiro."""
+    abertas = db.listar_tarefas_abertas(id_usuario, data_fim_minima=agora - timedelta(days=REORG_JANELA_ATRASO_DIAS))
+    abertas = db.enriquecer_tarefas(id_usuario, abertas)
+    atrasadas = [t for t in abertas if t["data_fim"] < agora and not t.get("dependencia_pendente")]
+    prioridade = {"alta": 0, "media": 1, "baixa": 2}
+    atrasadas.sort(key=lambda t: (prioridade.get(t.get("prioridade"), 1), t["data_fim"]))
+    return atrasadas
+
+
+def _contar_atrasadas_para_reorganizar():
+    """Quantas atrasadas podem ser reorganizadas (decide se o botão aparece). Nunca derruba a tela de Tarefas."""
+    try:
+        return len(_atrasadas_para_reorganizar(usuario_logado(), datetime.now()))
+    except Exception:
+        return 0
+
+
+@app.route("/tarefas/reorganizar/previa", methods=["POST"])
+@login_obrigatorio
+def reorganizar_previa():
+    agora = datetime.now()
+    atrasadas = _atrasadas_para_reorganizar(usuario_logado(), agora)
+    if not atrasadas:
+        return jsonify(erro="Você não tem tarefas atrasadas para reorganizar."), 409
+    propostas, sem_horario, reservas = [], [], []
+    for t in atrasadas[:REORG_MAX_TAREFAS]:
+        duracao_min = int(min(max((t["data_fim"] - t["data_inicio"]).total_seconds() // 60, 15), 480))
+        categoria = t.get("categoria") if t.get("categoria") in _REORG_CATEGORIAS else None
+        limite = t["objetivo_prazo"].date() if t.get("objetivo_prazo") else None     # passo de objetivo não passa do prazo dele
+        achou = None
+        for desloc in range(0, REORG_DIAS_A_FRENTE + 1):
+            dia = agora.date() + timedelta(days=desloc)
+            if limite and dia > limite:
+                break
+            r = decisao.sugerir_horarios(usuario_logado(), dia, duracao_min, agora, max_sugestoes=1, categoria=categoria, reservas=reservas)
+            if r["sugestoes"]:
+                achou = r["sugestoes"][0]
+                break
+        if not achou:
+            sem_horario.append({"id_tarefa": t["id_tarefa"], "titulo": t["titulo"]})
+            continue
+        inicio, fim = datetime.fromisoformat(achou["inicio"]), datetime.fromisoformat(achou["fim"])
+        reservas.append((inicio - timedelta(minutes=achou.get("preparo_min", 0)), fim + timedelta(minutes=achou.get("folga_min", 0))))     # a próxima proposta não disputa este horário
+        propostas.append({
+            "id_tarefa": t["id_tarefa"], "titulo": t["titulo"], "categoria": t.get("categoria"), "duracao_min": duracao_min,
+            "de": {"inicio": t["data_inicio"].isoformat(timespec="minutes"), "fim": t["data_fim"].isoformat(timespec="minutes")},
+            "inicio": achou["inicio"], "fim": achou["fim"], "motivo": achou["base"],
+        })
+    if not propostas:
+        return jsonify(erro=f"Não encontrei horário livre nos próximos {REORG_DIAS_A_FRENTE} dias para as tarefas atrasadas."), 409
+    return jsonify(propostas=propostas, sem_horario=sem_horario, total_atrasadas=len(atrasadas))
+
+
+def _conflitos_da_reorganizacao(id_usuario, itens):
+    """Conflito de cada novo horário com a agenda (ignorando a própria tarefa) e dos itens entre si."""
+    saida = []
+    for i, p in enumerate(itens):
+        achados = list(agenda.conflitos_para(id_usuario, p["inicio"], p["fim"], categoria=p["categoria"], ignorar_id_tarefa=p["id_tarefa"]))
+        for j, q in enumerate(itens):
+            if j != i and p["inicio"] < q["fim"] and q["inicio"] < p["fim"]:
+                achados.append({"tipo": "tarefa", "titulo": q["titulo"], "inicio": q["inicio"].isoformat(timespec="minutes"),
+                                "fim": q["fim"].isoformat(timespec="minutes")})
+        if achados:
+            saida.append({"indice": i, "titulo": p["titulo"], "inicio": p["inicio"].isoformat(timespec="minutes"),
+                          "fim": p["fim"].isoformat(timespec="minutes"), "conflitos": achados})
+    return saida
+
+
+@app.route("/tarefas/reorganizar/confirmar", methods=["POST"])
+@login_obrigatorio
+def reorganizar_confirmar():
+    dados = request.get_json(silent=True) or {}
+    itens = dados.get("itens")
+    if not isinstance(itens, list) or not 1 <= len(itens) <= REORG_MAX_TAREFAS:
+        return jsonify(erro="Nada para reorganizar."), 400
+    agora, validados, vistos = datetime.now(), [], set()
+    for it in itens:
+        try:
+            id_tarefa = int(it["id_tarefa"])
+            inicio = datetime.fromisoformat(str(it["inicio"]))
+        except (KeyError, TypeError, ValueError):
+            return jsonify(erro="Um dos itens está com tarefa ou horário inválido."), 400
+        if id_tarefa in vistos:
+            return jsonify(erro="A mesma tarefa aparece mais de uma vez."), 400
+        vistos.add(id_tarefa)
+        if not agora - timedelta(days=1) <= inicio <= agora + timedelta(days=365):
+            return jsonify(erro="Um dos horários está fora do intervalo permitido (de hoje até 1 ano à frente)."), 400
+        tarefa = db.buscar_tarefa(id_tarefa, usuario_logado())
+        if not tarefa or tarefa["status"] not in ("pendente", "em_andamento"):
+            return jsonify(erro="Uma das tarefas não está mais aberta. Reabra a janela para ver a lista atual."), 409
+        fim = inicio + (tarefa["data_fim"] - tarefa["data_inicio"])        # a duração é a da própria tarefa, nunca a do navegador
+        validados.append({"id_tarefa": id_tarefa, "titulo": tarefa["titulo"], "categoria": tarefa.get("categoria"), "inicio": inicio, "fim": fim})
+    conflitos = _conflitos_da_reorganizacao(usuario_logado(), validados)
+    if conflitos and not _confirmou_conflito_passos(dados.get("confirmar_conflito")):
+        linhas = []
+        for c in conflitos:
+            quando = datetime.fromisoformat(c["inicio"])
+            linhas.append(f"Tarefa {c['indice'] + 1} ({quando:%d/%m %H:%M}): " + servicos.descrever_conflitos(c["conflitos"]))
+        return jsonify(erro="Há conflito de horário:\n" + "\n".join(linhas), conflitos=conflitos, exige_confirmacao=True), 409
+    feitas = 0
+    for v in validados:
+        resultado = servicos.atualizar_tarefa(
+            usuario_logado(), v["id_tarefa"],
+            data_inicio=v["inicio"].isoformat(timespec="minutes"), data_fim=v["fim"].isoformat(timespec="minutes"), confirmar_conflito=True,
+        )
+        if resultado.get("sucesso"):
+            feitas += 1
+    if feitas:
+        _mascote_evento("tarefa_replanejada")   # [MASCOTE] reorganizar o que atrasou é ajuste, não é culpa
+        _liberar_tema(usuario_logado(), "campeonato")   # [TEMA]
+    return jsonify(ok=True, reorganizadas=feitas, falharam=len(validados) - feitas, redirect=url_for("tarefas"))
 
 
 @app.route("/tarefas/nova", methods=["POST"])
@@ -844,6 +990,11 @@ def concluir_tarefa(id_tarefa):
     if resultado.get("nao_encontrada"):
         abort(404)
 
+    cron = resultado.get("cronometro")      # [CRONOMETRO] mostra o tempo real e o incentivo, sem julgar
+    if cron and not resultado.get("erro"):
+        session["cronometro_aviso"] = {"titulo": resultado.get("titulo"), "real_min": max(1, round(cron["real_s"] / 60)),
+                                       "previsto_min": cron["previsto_min"], "pontos": cron["pontos"] if GAMIFICACAO_ATIVA else 0}
+
     # [MASCOTE] se era a última de hoje, a comemoração é de "dia concluído"
     if not resultado.get("erro"):
         hoje = [t for t in tarefas_filtradas(usuario_logado(), "hoje") if t["status"] != "cancelada"]
@@ -853,6 +1004,23 @@ def concluir_tarefa(id_tarefa):
             _liberar_tema(usuario_logado(), "campeonato", NIVEL_SIMPLES)   # [TEMA] versão simples
         else:
             _mascote_evento("tarefa_concluida")
+    return redirect(request.referrer or url_for("tarefas"))
+
+
+@app.route("/tarefas/<int:id_tarefa>/cronometro/<acao>", methods=["POST"])
+@login_obrigatorio
+def cronometro_tarefa(id_tarefa, acao):
+    """[CRONOMETRO] Opcional: começar, pausar ou retomar o cronômetro de uma tarefa."""
+    funcao = {"iniciar": "iniciar_tarefa", "pausar": "pausar_tarefa", "retomar": "retomar_tarefa"}.get(acao)
+    if funcao is None:
+        abort(404)
+    resultado = getattr(servicos, funcao)(usuario_logado(), id_tarefa)
+    if resultado.get("nao_encontrada"):
+        abort(404)
+    if resultado.get("erro"):
+        session["cronometro_aviso"] = {"erro": resultado["erro"]}
+    elif resultado.get("pausadas"):
+        session["cronometro_aviso"] = {"info": "Pausei " + ", ".join(resultado["pausadas"]) + " para você começar esta."}
     return redirect(request.referrer or url_for("tarefas"))
 
 

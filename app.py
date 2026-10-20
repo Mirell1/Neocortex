@@ -839,6 +839,8 @@ def tarefas():
 REORG_MAX_TAREFAS = 12
 REORG_JANELA_ATRASO_DIAS = 14     # só olha o que atrasou nas últimas 2 semanas
 REORG_DIAS_A_FRENTE = 14          # procura horário livre nas próximas 2 semanas
+REORG_DIAS_PARA_MELHORAR = 2      # [LOTE-4] se o 1º horário livre cai num período pior, olha até 2 dias à frente por um melhor
+REORG_GANHO_MIN_PONTOS = 0.5      # [LOTE-4] ...mas só espera por um horário que valha pelo menos isto a mais na pontuação
 _REORG_CATEGORIAS = ("estudo", "trabalho", "hobby", "pessoal", "saude")
 
 
@@ -872,15 +874,20 @@ def reorganizar_previa():
         duracao_min = int(min(max((t["data_fim"] - t["data_inicio"]).total_seconds() // 60, 15), 480))
         categoria = t.get("categoria") if t.get("categoria") in _REORG_CATEGORIAS else None
         limite = t["objetivo_prazo"].date() if t.get("objetivo_prazo") else None     # passo de objetivo não passa do prazo dele
-        achou = None
+        achou, primeiro_dia = None, None
         for desloc in range(0, REORG_DIAS_A_FRENTE + 1):
             dia = agora.date() + timedelta(days=desloc)
             if limite and dia > limite:
                 break
-            r = decisao.sugerir_horarios(usuario_logado(), dia, duracao_min, agora, max_sugestoes=1, categoria=categoria, reservas=reservas)
-            if r["sugestoes"]:
-                achou = r["sugestoes"][0]
+            if primeiro_dia is not None and desloc - primeiro_dia > REORG_DIAS_PARA_MELHORAR:
                 break
+            r = decisao.sugerir_horarios(usuario_logado(), dia, duracao_min, agora, max_sugestoes=1, categoria=categoria, reservas=reservas, incluir_pontos=True)
+            if r["sugestoes"]:
+                s = r["sugestoes"][0]
+                if primeiro_dia is None:
+                    primeiro_dia, achou = desloc, s
+                elif s.get("pontos", 0) >= achou.get("pontos", 0) + REORG_GANHO_MIN_PONTOS:   # só espera por um horário claramente melhor
+                    achou = s
         if not achou:
             sem_horario.append({"id_tarefa": t["id_tarefa"], "titulo": t["titulo"]})
             continue

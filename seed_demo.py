@@ -5,6 +5,11 @@ Cria (ou recria) UMA conta fictícia com cerca de 4 semanas de uso realista:
 3 semanas passadas, hoje e a próxima semana. Serve para testar a plataforma
 "cheia" e para gravar a apresentação.
 
+A história que os dados contam (é isso que o NEOCORTEX deve aprender): a Ana DECLARA que rende mais à tarde, mas na prática
+conclui pouco do que agenda antes das 18h e quase tudo do que agenda à noite. Por isso, depois do aprendizado, as sugestões de
+estudo passam da tarde para a noite, e cada uma explica o porquê.
+DEPOIS de rodar este script, rode  python aprendizado.py : o seed corrige a hora de conclusão por último e não recalcula.
+
 Segurança:
 - Só roda com NEOCORTEX_DEMO=1 (banco local de desenvolvimento).
 - Mexe apenas na conta demo@neocortex.local; nenhum outro usuário é tocado.
@@ -40,7 +45,7 @@ DIAS_PASSADOS = 21
 DIAS_FUTUROS = 7
 
 # ------------------------------------------------------------
-# PERFIL FICTÍCIO: estuda de manhã, estágio ter/qui à tarde, rende mais à tarde
+# PERFIL FICTÍCIO: estuda de manhã, estágio ter/qui à tarde; DECLARA que rende mais à tarde, mas conclui mais à noite
 # ------------------------------------------------------------
 ROTINA = [
     (["segunda", "terca", "quarta", "quinta", "sexta"], "Faculdade", "08:00", "12:00"),
@@ -82,9 +87,9 @@ OBJETIVOS = [
 CONVERSA = [
     ("usuario", "Organiza minha semana?"),
     ("assistente", "Claro! Você tem faculdade de manhã e estágio na terça e na quinta. "
-                   "Sugiro deixar os estudos mais pesados para as tardes livres de segunda, quarta e sexta."),
+                   "Sugiro reservar blocos de estudo nos horários livres de segunda, quarta e sexta, fora da faculdade e do estágio."),
     ("usuario", "O que ficou para depois?"),
-    ("assistente", "Ficaram duas tarefas atrasadas: **Mercado da semana** e **Lista de exercícios de Python**. "
+    ("assistente", "Ficaram algumas tarefas atrasadas. "
                    "Quer que eu sugira novos horários para elas?"),
 ]
 
@@ -152,15 +157,19 @@ def planejar_tarefas(hoje):
     return plano
 
 
+CHANCE_ANTES_DAS_18 = 0.30        # chance de concluir o que foi agendado antes das 18h
+CHANCE_A_PARTIR_DAS_18 = 0.90     # ...e o que foi agendado à noite: a Ana declara "tarde", mas é à noite que ela conclui
+
+
 def decidir_destino(inicio, fim, desloc, agora):
     """
     'concluida' (com hora realista), 'cancelada' ou 'pendente'.
-    Rende mais à tarde (combina com a energia declarada), às vezes marca em lote
-    à noite (o analise_energia.py sabe lidar com isso).
+    Conclui pouco do que agenda antes das 18h e quase tudo do que agenda à noite (o contrário da energia declarada), e às
+    vezes marca em lote à noite (o aprendizado conta cada lote uma vez só).
     """
     if inicio > agora:
         return "pendente", None
-    chance = 0.72 + (0.12 if 12 <= inicio.hour < 18 else 0)
+    chance = CHANCE_A_PARTIR_DAS_18 if inicio.hour >= 18 else CHANCE_ANTES_DAS_18
     if random.random() < chance:
         if random.random() < 0.2:   # marcou depois, junto com outras
             quando = datetime.combine(inicio.date(), datetime.min.time()).replace(
@@ -169,7 +178,7 @@ def decidir_destino(inicio, fim, desloc, agora):
         else:
             quando = fim - timedelta(minutes=random.randint(0, 20))
         return "concluida", min(quando, agora)
-    if desloc < -5 and random.random() < 0.6:   # tarefas antigas abandonadas foram canceladas
+    if desloc < -2 and random.random() < 0.8:   # o que está atrasado há mais de 2 dias quase sempre já foi cancelado (a pessoa desistiu)
         return "cancelada", None
     return "pendente", None                      # vira "atrasada" na tela
 

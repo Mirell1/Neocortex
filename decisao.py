@@ -139,7 +139,7 @@ def _candidatos(livres, duracao, ctx, folga_min, preparo_min=0):
     return candidatos
 
 
-def sugerir_horarios(id_usuario, dia, duracao_min=60, agora=None, max_sugestoes=3, categoria=None, reservas=None, usar_folga=True):
+def sugerir_horarios(id_usuario, dia, duracao_min=60, agora=None, max_sugestoes=3, categoria=None, reservas=None, usar_folga=True, incluir_pontos=False):
     """
     Janelas livres do dia (descontando tarefas, compromissos, rotina,
     restrições e disponibilidade), ordenadas pelo que se SABE do usuário.
@@ -150,6 +150,8 @@ def sugerir_horarios(id_usuario, dia, duracao_min=60, agora=None, max_sugestoes=
       reservas   : intervalos (ini, fim) já tomados por outras propostas; não são oferecidos de novo.
       usar_folga : reserva uma folga DEPOIS da tarefa quando o atraso e o adiamento da pessoa pedem
                    (se não couber, oferece sem a folga e avisa).
+      incluir_pontos : [LOTE-4] acrescenta a PONTUAÇÃO de cada sugestão ("pontos"), para quem precisa comparar horários de dias
+                   diferentes (a reorganização das atrasadas). Desligado por padrão: a saída continua a de sempre.
     [CRONOMETRO]
       com o cronômetro opcional, a folga usa o tempo realmente medido e, se a pessoa costuma começar depois do horário,
       deixa também uma margem livre ANTES (também desligada por usar_folga=False; se não couber, oferece sem ela e avisa).
@@ -180,7 +182,7 @@ def sugerir_horarios(id_usuario, dia, duracao_min=60, agora=None, max_sugestoes=
     for pontos, t, base in candidatos:
         if all(t - preparo_td >= e["_fim"] or t + duracao + folga_td <= e["_ini"] for e in escolhidas):
             escolhidas.append({"_ini": t - preparo_td, "_fim": t + duracao + folga_td, "_inicio": t, "_fim_tarefa": t + duracao,
-                               "periodo": agenda.periodo_da_hora(t.hour), "base": base})
+                               "periodo": agenda.periodo_da_hora(t.hour), "base": base, "pontos": pontos})
         if len(escolhidas) == max_sugestoes:
             break
 
@@ -190,6 +192,8 @@ def sugerir_horarios(id_usuario, dia, duracao_min=60, agora=None, max_sugestoes=
         base = list(e["base"]) or (["horário livre"] if com_extras else ["horário livre (ainda sem histórico para personalizar)"])
         item = {"inicio": e["_inicio"].isoformat(timespec="minutes"), "fim": e["_fim_tarefa"].isoformat(timespec="minutes"),
                 "periodo": e["periodo"], "base": base}
+        if incluir_pontos:
+            item["pontos"] = round(e["pontos"], 2)
         if preparo:
             item["preparo_min"] = preparo
             base.append(f"deixei {preparo} min livres antes ({' e '.join(motivos_preparo)})")
@@ -244,6 +248,16 @@ def vincular_sugestao_a_tarefa(id_usuario, id_tarefa, data_inicio, agora=None):
 # ============================================================
 # RECOMENDAR TAREFA PARA AGORA
 # ============================================================
+def _tempo_humano(minutos):
+    """[LOTE-4] Tempo de atraso legível: "40 min", "3 h", "7 dias" (em vez de "9940 min")."""
+    m = int(minutos)
+    if m < 90:
+        return f"{m} min"
+    if m < 48 * 60:
+        return f"{round(m / 60)} h"
+    return f"{round(m / 1440)} dias"
+
+
 def _sugestao_descanso(id_usuario, agora, situacao):
     """[BEM-ESTAR] Sem nada urgente e com tempo livre, convida para um hobby do perfil.
     É só um convite (nunca cria nada) e nunca atrapalha a recomendação: qualquer falha aqui devolve None."""
@@ -298,7 +312,7 @@ def recomendar_tarefa_agora(id_usuario, agora=None):
             camada, motivo = 1, "está dentro do horário planejado"
         elif t["data_fim"] <= agora:
             atraso = int((agora - t["data_fim"]).total_seconds() // 60)
-            camada, motivo = 2, f"está atrasada (o prazo passou há {atraso} min)"
+            camada, motivo = 2, f"está atrasada (o prazo passou há {_tempo_humano(atraso)})"
         elif agora < t["data_inicio"] <= agora + timedelta(hours=HORIZONTE_PROXIMA_H):
             faltam = int((t["data_inicio"] - agora).total_seconds() // 60)
             camada, motivo = 3, f"começa em {faltam} min"

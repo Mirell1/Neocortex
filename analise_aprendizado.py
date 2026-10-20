@@ -126,7 +126,7 @@ def _grafico_taxa_por_periodo(plt, tabela, ae, pasta, demo):
         eixo.text(i, 0.03, f"{taxas[i]:.0%}\nn={t['total']}", ha="center", va="bottom", color="white", fontweight="bold", fontsize=10)
     eixo.set_xticks(x, [ROTULO_PERIODO[p] for p in PERIODOS]); eixo.set_ylim(0, 1); eixo.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
     eixo.set_ylabel("tarefas concluídas"); eixo.set_title("Taxa de conclusão por período em que a tarefa foi agendada")
-    return _salvar(plt, fig, pasta, "taxa_por_periodo.png", demo, "Barras de erro: intervalo de confiança de 95% (Wilson). Tarefas encerradas: concluídas ou com prazo vencido.")
+    return _salvar(plt, fig, pasta, "taxa_por_periodo.png", demo, "Barras de erro: intervalo de confiança de 95% (Wilson). Tarefas encerradas: as que já passaram do prazo (concluídas ou não), a mesma coorte das métricas do produto.")
 
 
 def _grafico_categoria_periodo(plt, celulas, categorias, pasta, demo):
@@ -212,7 +212,7 @@ def analisar(df, ml, ae, energia, tarefas, demo, pasta, plt):
     # ---------------------------------------------------------------- 1. dados
     md += ["## 1. Os dados", ""]
     if n == 0:
-        md += ["Ainda não há tarefas encerradas (concluídas ou com prazo vencido) para analisar.", ""]
+        md += ["Ainda não há tarefas encerradas (com o prazo já vencido) para analisar.", ""]
         R["dados"] = {"tarefas_encerradas": 0}
         return R, md, graficos
     por_pessoa = df.groupby("id_usuario").size()
@@ -220,8 +220,8 @@ def analisar(df, ml, ae, energia, tarefas, demo, pasta, plt):
                   "taxa_conclusao": round(float(df["concluida"].mean()), 4), "primeira_tarefa": str(df["data_inicio"].min())[:10], "ultima_tarefa": str(df["data_inicio"].max())[:10],
                   "tarefas_por_pessoa": {"minimo": int(por_pessoa.min()), "mediana": float(por_pessoa.median()), "maximo": int(por_pessoa.max())}}
     d = R["dados"]
-    md += [f"- **{n}** tarefas encerradas de **{d['pessoas']}** pessoas, entre {d['primeira_tarefa']} e {d['ultima_tarefa']}.",
-           f"- **{d['concluidas']}** foram concluídas (**{d['taxa_conclusao']:.0%}**) e {n - d['concluidas']} ficaram com o prazo vencido sem concluir.",
+    md += [f"- **{n}** tarefas com o prazo já vencido (de **{d['pessoas']}** pessoas), entre {d['primeira_tarefa']} e {d['ultima_tarefa']}.",
+           f"- **{d['concluidas']}** foram concluídas (**{d['taxa_conclusao']:.0%}**) e {n - d['concluidas']} não foram concluídas. Tarefa concluída antes do prazo só entra aqui quando o prazo chega.",
            f"- Tarefas por pessoa: mínimo {d['tarefas_por_pessoa']['minimo']}, mediana {d['tarefas_por_pessoa']['mediana']:.0f}, máximo {d['tarefas_por_pessoa']['maximo']}.", "",
            "**Já dá para avaliar Machine Learning?** (critério definido no `ml_preparacao.py`)", "",
            "| Critério | Atual | Mínimo | |", "|---|---:|---:|:---:|",

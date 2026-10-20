@@ -1,4 +1,4 @@
-'-- ============================================================
+-- ============================================================
 -- NEOCORTEX — Migração do núcleo de aprendizado
 --
 -- ADITIVA e IDEMPOTENTE: pode rodar várias vezes e roda por cima do

@@ -72,7 +72,7 @@ checa("banco totalmente vazio: não quebra e diz que ainda não há tarefas para
 print("\n=== 3) BANCO REAL COM POUCOS DADOS: o relatório diz que não dá, e não inventa gráfico ===")
 banco_pouco = codigo_banco.replace("def fetchall(s): return []", '''def fetchall(s):
         q = vistos[-1] if vistos else ""
-        if "FROM tarefas" in q and "padroes" in q:
+        if "FROM tarefas" in q and ("padroes" in q or "observacoes_energia" in q or "NULL AS energia_declarada" in q):   # [LOTE-1.1] a energia agora vem do histórico de declarações
             base = datetime(2026, 10, 1, 9)
             return [dict(id_tarefa=i, id_usuario=1 + i % 2, categoria="estudo", data_inicio=base + timedelta(days=i), data_fim=base + timedelta(days=i, hours=1), criado_em=base + timedelta(days=i - 1), status="concluida" if i % 2 else "pendente", concluido_em=base + timedelta(days=i, hours=1, minutes=10) if i % 2 else None, energia_declarada="manha", n_adiamentos=0) for i in range(14)]
         return []''').replace('print("SQL:" + json.dumps(vistos))', 'print("SQL:" + json.dumps(vistos)); print("PASTA:" + sys.argv[1] if len(sys.argv) > 1 else "")')

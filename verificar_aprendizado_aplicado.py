@@ -82,6 +82,17 @@ banco.substituir_memoria = lambda *a, **k: None
 banco.salvar_metrica_unica = lambda uid, nome, valor, ref: METRICAS.__setitem__(nome, valor)
 banco.contar_resultados_recomendacoes = lambda uid: {}
 ap.resolver_recomendacoes = lambda *a, **k: {}
+# Contrato temporal v1: adapta somente o dublê; as asserções originais permanecem.
+ap.db.listar_tarefas_aprendizado = lambda *a: TAREFAS
+ap.db.contar_resultados_recomendacoes = lambda *a, **k: {}
+ap.db.proxima_expiracao_resultados = lambda *a: None
+def publicar_fake(uid, padroes, metricas, ref, agora, valido_ate, detalhes):
+    SALVOS.clear()
+    SALVOS.update({k: {"valor":v["valor"],"confianca":v["confianca"],"evidencias":v["n"]} for k,v in padroes.items()})
+    METRICAS.clear()
+    METRICAS.update(metricas)
+ap.db.publicar_aprendizado = publicar_fake
+
 hoje = datetime(2026, 10, 19, 12, 0); TAREFAS = []; idt = [0]
 def tarefa(cat, dias_atras, hora, ok, atraso=15):
     idt[0] += 1; ini = (hoje - timedelta(days=dias_atras)).replace(hour=hora, minute=0, second=0); fim = ini + timedelta(hours=1)

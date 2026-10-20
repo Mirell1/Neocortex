@@ -73,31 +73,43 @@ FRACAO_JANELAS_POSITIVAS = 0.75     # o modelo precisa ganhar em pelo menos 3 de
 
 def extrair_features(agora=None, id_usuario=None):
     """
-    Dataset de tarefas ENCERRADAS (concluídas, ou abertas com prazo vencido;
-    canceladas ficam de fora) — SOMENTE LEITURA, uma linha por tarefa.
+    Dataset de tarefas ENCERRADAS = com o PRAZO já vencido (a coorte por prazo das métricas do produto: uma tarefa concluída
+    antes do prazo só entra quando o prazo chega). Canceladas ficam de fora. SOMENTE LEITURA, uma linha por tarefa.
+    [LOTE-1.1] A energia é a que a pessoa tinha DECLARADO quando a tarefa foi criada (tabela observacoes_energia), nunca a de
+    hoje. Sem esse histórico (tabela ausente, ou tarefa anterior a ele), a energia é "desconhecida": não se inventa passado.
     """
     agora = agora or datetime.now()
-    sql = """
+    corpo = """
         SELECT t.id_tarefa, t.id_usuario, t.categoria, t.data_inicio, t.data_fim,
                t.criado_em, t.status, t.concluido_em,
-               (SELECT p.valor FROM padroes_comportamentais p
-                 WHERE p.id_usuario = t.id_usuario AND p.tipo_padrao = 'energia'
-                 LIMIT 1) AS energia_declarada,
+               {energia},
                (SELECT COUNT(*) FROM eventos_execucao e
                  WHERE e.id_tarefa = t.id_tarefa AND e.tipo_evento = 'adiou') AS n_adiamentos
         FROM tarefas t
-        WHERE t.status <> 'cancelada'
-          AND (t.status = 'concluida'
-               OR (t.status IN ('pendente', 'em_andamento') AND t.data_fim < %s))
+        WHERE t.status <> 'cancelada' AND t.data_fim < %s
     """
+    energia_na_epoca = """(SELECT CASE WHEN o.origem = 'exclusao' THEN NULL ELSE o.valor END
+                  FROM observacoes_energia o
+                 WHERE o.id_usuario = t.id_usuario AND o.observado_em <= t.criado_em
+                 ORDER BY o.observado_em DESC, o.id_observacao DESC LIMIT 1) AS energia_declarada"""
     parametros = [agora]
     if id_usuario is not None:
-        sql += " AND t.id_usuario = %s"
         parametros.append(id_usuario)
-    with db.conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, parametros)
-            linhas = cur.fetchall()
+    linhas = None
+    for energia in (energia_na_epoca, "NULL AS energia_declarada"):
+        sql = corpo.replace("{energia}", energia) + (" AND t.id_usuario = %s" if id_usuario is not None else "")
+        try:
+            with db.conectar() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, parametros)
+                    linhas = cur.fetchall()
+            break
+        except Exception as erro:
+            if not energia.startswith("(SELECT") or "observacoes_energia" not in str(erro):
+                raise
+            import logging
+            logging.getLogger("neocortex.ml").warning(
+                "Sem o histórico de declarações (observacoes_energia): a energia será 'desconhecida' em todas as tarefas.")
 
     colunas = ["id_tarefa", "id_usuario", "categoria", "data_inicio", "data_fim", "criado_em",
                "status", "concluido_em", "energia_declarada", "n_adiamentos"]
@@ -171,8 +183,9 @@ def previsao_baseline(treino, teste, suavizacao=5):
 def historico_previo(df, suavizacao=5):
     """
     Para cada tarefa: o que se SABIA da própria pessoa quando ela foi agendada (criado_em), sem usar o futuro.
-    Uma tarefa anterior só conta se já estava encerrada naquele momento: concluída antes dele, ou com o prazo já vencido
-    (uma tarefa concluída DEPOIS do momento conta como não concluída: era o que o sistema via então).
+    Uma tarefa anterior só conta se (1) já tinha sido CRIADA naquele momento (a própria tarefa e os registros retroativos,
+    criados depois do fato, não eram conhecidos) e (2) o prazo dela já tinha vencido: a mesma coorte por prazo das métricas do
+    produto. Concluída DEPOIS do momento conta como não concluída: era o que o sistema via então. [LOTE-1.1]
     Devolve o dataset ordenado por data de início, com as colunas de FEATURES_HISTORICO. A taxa 'pessoa x período' é a
     regra do produto: taxa da pessoa naquele período, suavizada em direção à taxa geral dela (que parte de 50%).
     """
@@ -184,8 +197,9 @@ def historico_previo(df, suavizacao=5):
                                            sub["periodo_agendado"].values, sub["criado_em"].values)
         for k, i in enumerate(indices):
             momento = criado[k]
-            deu_certo = concluido < momento                  # NaT < momento é falso: quem nunca concluiu não conta como concluída
-            encerrada = deu_certo | (fim < momento)
+            conhecida = criado < momento                     # exclui a própria tarefa e o que só foi registrado depois (NaT também fica de fora)
+            deu_certo = conhecida & (concluido < momento)    # NaT < momento é falso: quem nunca concluiu não conta como concluída
+            encerrada = conhecida & (fim < momento)          # coorte por prazo vencido, como nas métricas do produto
             n = int(encerrada.sum())
             geral = (deu_certo[encerrada].sum() + suavizacao * 0.5) / (n + suavizacao)
             mesmo_periodo = encerrada & (periodo == periodo[k])
@@ -242,14 +256,17 @@ def comparar_com_baseline(df, usar_historico=True, n_janelas=N_JANELAS):
     df = historico_previo(df)
     numericas = FEATURES_NUMERICAS + (FEATURES_HISTORICO if usar_historico else [])
     janelas = _avaliar_em_janelas(df, numericas, n_janelas)
-    if not janelas:
+    # [LOTE-1.1] o requisito vale sobre as janelas ANUNCIADAS: uma janela descartada (sem as duas classes) não o reduz em silêncio
+    minimo_janelas = int(np.ceil(FRACAO_JANELAS_POSITIVAS * n_janelas))
+    if len(janelas) < minimo_janelas:
         return {"status": "dados_insuficientes", "decisao": "manter_regras",
-                "detalhe": "nenhuma janela de teste com as duas classes", **prontidao}
+                "detalhe": f"só {len(janelas)} de {n_janelas} janelas de teste são válidas (mínimo {minimo_janelas}, com as duas classes em cada uma)",
+                **prontidao}
 
     ganhos = [_ganho_da_janela(j) for j in janelas]
     ganho_medio = float(np.mean(ganhos))
     positivas = int(sum(g > 0 for g in ganhos))
-    aprovado = ganho_medio >= GANHO_MINIMO_LOGLOSS and positivas >= int(np.ceil(FRACAO_JANELAS_POSITIVAS * len(janelas)))
+    aprovado = ganho_medio >= GANHO_MINIMO_LOGLOSS and positivas >= minimo_janelas
     y = np.concatenate([j["y"] for j in janelas])
     p_base, p_modelo = np.concatenate([j["p_baseline"] for j in janelas]), np.concatenate([j["p_modelo"] for j in janelas])
     ultima = janelas[-1]

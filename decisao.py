@@ -34,6 +34,7 @@ PREPARO_MAX_MIN = 60            # teto: nunca reserva mais que 1 hora
 def _contexto_aprendido(id_usuario, categoria=None):
     """Padrões e taxas relevantes para escolher horário (cada item diz de onde vem).
     [APRENDIZADO-APLICADO] Com categoria, traz também o que se aprendeu SOBRE ela (ex.: estudo)."""
+    aprendizado.garantir_vigente(id_usuario)   # [LOTE-1.1] snapshot vencido é recalculado antes de ler (com trava de frequência)
     padroes = {p["tipo_padrao"]: p for p in db.listar_padroes(id_usuario)}
     metricas = {m["nome_metrica"]: float(m["valor"]) for m in db.listar_metricas(id_usuario)}
     return {

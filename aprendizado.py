@@ -19,7 +19,7 @@ IMPORTANTE — o que isto É e o que NÃO é:
 
 Princípios (todos cobertos por testes):
   - Uma ocorrência isolada não vira padrão (mínimo de evidências).
-  - Um padrão forte não é derrubado por uma ocorrência isolada.
+  - A confiança é derivada da amostra atual, não da frequência de recálculo.
   - Um padrão não fica eterno: só vale a janela recente (60 dias) e é
     trocado quando a evidência nova é forte e consistente.
   - O que o usuário DISSE (padrão 'energia', do onboarding) é guardado à
@@ -29,6 +29,8 @@ Princípios (todos cobertos por testes):
 
 import logging
 import statistics
+import threading
+import time
 from datetime import datetime, timedelta
 
 import cronometro
@@ -41,8 +43,6 @@ log = logging.getLogger("neocortex.aprendizado")
 JANELA_RECENTE_DIAS = 60        # só o comportamento recente conta
 MIN_EVENTOS_PADRAO = 5          # mínimo de eventos para existir um padrão
 PARTICIPACAO_MIN = 0.5          # o período dominante precisa de >= 50% dos eventos
-MIN_EVENTOS_TROCA = 8           # para TROCAR um padrão de confiança média/alta
-PARTICIPACAO_TROCA = 0.6        # ...o novo precisa dominar com >= 60%
 MIN_TAREFAS_PERIODO = 5         # mínimo de tarefas encerradas por período p/ taxa
 MIN_AMOSTRA_METRICA = 5         # mínimo para atraso mediano / taxa de adiamento
 MIN_RESULTADOS_ACEITACAO = 5    # mínimo de reações para taxa de aceitação
@@ -54,10 +54,6 @@ PERIODO_REF = f"ultimos_{JANELA_RECENTE_DIAS}d"
 
 PADRAO_PERIODO_OBSERVADO = "periodo_conclusao_observado"
 MEMORIA_PERIODO = "periodo_conclusao_preferido"
-
-_ORDEM = {"baixa": 1, "media": 2, "alta": 3}
-_NIVEIS = {1: "baixa", 2: "media", 3: "alta"}
-
 
 # ============================================================
 # 1. PADRÃO: período em que a pessoa realmente conclui
@@ -110,7 +106,9 @@ def calcular_periodo_observado(concluidas_em, agora):
     confianca = classificar_confianca(n, participacao)
     if confianca is None:
         return None
-    return {"valor": topo, "n": n, "participacao": round(participacao, 3), "confianca": confianca}
+    return {"valor": topo, "n": n, "participacao": round(participacao, 3), "confianca": confianca,
+            "dias_distintos": len({e.date() for e in eventos}),
+            "primeira_evidencia": min(eventos).isoformat(), "ultima_evidencia": max(eventos).isoformat()}
 
 
 def decidir_atualizacao(atual, novo):
@@ -119,45 +117,26 @@ def decidir_atualizacao(atual, novo):
 
     atual: {'valor','confianca','evidencias'} ou None
     novo : saída de calcular_periodo_observado() ou None
-    Retorna (acao, estado) com acao em: criar | reforcar | trocar | manter
+    Retorna criar | reforcar | trocar | manter | expirar. Sem histerese por execução.
     """
     if novo is None:
-        return "manter", atual          # sem evidência suficiente agora: nada muda
+        return ("expirar" if atual else "manter"), None
     if atual is None:
         return "criar", novo
-
-    if atual["valor"] == novo["valor"]:
-        confianca = novo["confianca"]
-        if _ORDEM[confianca] < _ORDEM[atual["confianca"]]:
-            # a confiança desce no máximo um nível por recálculo
-            confianca = _NIVEIS[_ORDEM[atual["confianca"]] - 1]
-        return "reforcar", {**novo, "confianca": confianca}
-
-    # o dominante mudou: exige evidência nova FORTE para trocar
-    if atual["confianca"] == "baixa":
-        pode_trocar = novo["n"] >= MIN_EVENTOS_PADRAO and novo["participacao"] >= PARTICIPACAO_MIN
-    else:
-        pode_trocar = novo["n"] >= MIN_EVENTOS_TROCA and novo["participacao"] >= PARTICIPACAO_TROCA
-    if not pode_trocar:
-        return "manter", atual
-
-    confianca = novo["confianca"]
-    if _ORDEM[confianca] > _ORDEM["media"]:
-        confianca = "media"             # padrão recém-trocado nasce com confiança no máximo média
-    return "trocar", {**novo, "confianca": confianca}
+    return ("reforcar" if atual["valor"] == novo["valor"] else "trocar"), novo
 
 
 # ============================================================
 # 2. MÉTRICAS: planejado x realizado
 # ============================================================
 def _tarefas_encerradas(tarefas, agora):
-    """Concluídas, ou abertas com prazo vencido. Canceladas ficam de fora."""
+    """Coorte de prazos já vencidos na janela; conclusão deve ser conhecida."""
     corte = agora - timedelta(days=JANELA_RECENTE_DIAS)
     encerradas = []
     for t in tarefas:
-        if t["data_inicio"] < corte or t["status"] == "cancelada":
+        if not corte <= t["data_fim"] < agora or t["status"] == "cancelada":
             continue
-        concluida = t["status"] == "concluida"
+        concluida = t["status"] == "concluida" and bool(t.get("concluido_em")) and t["concluido_em"] <= agora
         vencida = t["status"] in ("pendente", "em_andamento") and t["data_fim"] < agora
         if concluida or vencida:
             encerradas.append((t, concluida))
@@ -190,7 +169,7 @@ def calcular_atraso_mediano_min(tarefas, agora):
     atrasos = [
         (t["concluido_em"] - t["data_fim"]).total_seconds() / 60
         for t in tarefas
-        if t["status"] == "concluida" and t["concluido_em"] and t["data_inicio"] >= corte
+        if t["status"] == "concluida" and t["concluido_em"] and corte <= t["concluido_em"] <= agora and t["data_fim"] <= agora
     ]
     if len(atrasos) < MIN_AMOSTRA_METRICA:
         return None
@@ -198,12 +177,12 @@ def calcular_atraso_mediano_min(tarefas, agora):
 
 
 def calcular_taxa_adiamento(tarefas, eventos, agora):
-    """Fração das tarefas recentes que foram adiadas ao menos uma vez."""
+    """Fração da coorte de prazos vencidos com adiamento observado na janela."""
     corte = agora - timedelta(days=JANELA_RECENTE_DIAS)
-    recentes = {t["id_tarefa"] for t in tarefas if t["data_inicio"] >= corte and t["status"] != "cancelada"}
+    recentes = {t["id_tarefa"] for t, _ in _tarefas_encerradas(tarefas, agora)}
     if len(recentes) < MIN_AMOSTRA_METRICA:
         return None
-    adiadas = {e["id_tarefa"] for e in eventos if e["tipo_evento"] == "adiou" and e["id_tarefa"] in recentes}
+    adiadas = {e["id_tarefa"] for e in eventos if e["tipo_evento"] == "adiou" and e["id_tarefa"] in recentes and corte <= e["data_hora"] <= agora}
     return round(len(adiadas) / len(recentes), 4), len(recentes)
 
 
@@ -259,10 +238,11 @@ def calcular_metricas_cronometro(tarefas, eventos, agora):
     """
     por_tarefa = {}
     for e in eventos:
-        por_tarefa.setdefault(e["id_tarefa"], []).append(e)
+        if agora - timedelta(days=JANELA_RECENTE_DIAS) <= e["data_hora"] <= agora:
+            por_tarefa.setdefault(e["id_tarefa"], []).append(e)
     atrasos, excessos = [], []
     for t in tarefas:
-        if t["status"] != "concluida":
+        if t["status"] != "concluida" or not t.get("concluido_em") or not agora - timedelta(days=JANELA_RECENTE_DIAS) <= t["concluido_em"] <= agora:
             continue
         resumo = cronometro.resumir(por_tarefa.get(t["id_tarefa"], []), agora)
         if not cronometro.serve_para_aprender(resumo):
@@ -290,14 +270,15 @@ def recalcular_aprendizado(id_usuario, agora=None):
     agora = agora or datetime.now()
     resumo = {"recomendacoes": resolver_recomendacoes(id_usuario, agora)}
 
-    tarefas = db.listar_tarefas(
-        id_usuario,
-        data_inicio=agora - timedelta(days=JANELA_RECENTE_DIAS),
-    )
+    corte = agora - timedelta(days=JANELA_RECENTE_DIAS)
+    tarefas = db.listar_tarefas_aprendizado(id_usuario, corte, agora)
     eventos = db.listar_eventos_usuario(
         id_usuario,
         desde=agora - timedelta(days=JANELA_RECENTE_DIAS),
     )
+    # Relógios do banco e da aplicação podem divergir ligeiramente.
+    # Um evento futuro não é evidência nem deve vencer imediatamente o snapshot.
+    eventos = [e for e in eventos if corte <= e["data_hora"] <= agora]
 
     # --- período em que a pessoa de fato conclui ---
     concluidas_em = [t["concluido_em"] for t in tarefas if t["status"] == "concluida" and t["concluido_em"]]
@@ -308,24 +289,21 @@ def recalcular_aprendizado(id_usuario, agora=None):
         atual = {"valor": padrao["valor"], "confianca": padrao["confianca"], "evidencias": padrao.get("evidencias")}
 
     acao, estado = decidir_atualizacao(atual, novo)
-    if acao in ("criar", "reforcar", "trocar"):
-        db.salvar_padrao_observado(id_usuario, PADRAO_PERIODO_OBSERVADO, estado["valor"],
-                                   estado["confianca"], estado["n"])
-        db.substituir_memoria(
-            id_usuario, MEMORIA_PERIODO,
-            f"Costuma concluir tarefas no período da {estado['valor']}.",
-            estado["confianca"], estado["n"], origem="observado",
-        )
+    padroes_novos = {}
+    if estado:
+        padroes_novos[PADRAO_PERIODO_OBSERVADO] = estado
     resumo["periodo_observado"] = {"acao": acao, "estado": estado}
 
     # --- [POR-CATEGORIA] o mesmo aprendizado, separado por categoria (estudo, trabalho...): o horário em que a pessoa
     #     rende pode ser outro para cada tipo de tarefa. Só entra com evidência suficiente, com as mesmas regras do geral.
     metricas_categoria = {}
+    amostras = {}
     por_categoria = {}
     for t in tarefas:
         if t.get("categoria") in CATEGORIAS_APRENDIDAS:
             por_categoria.setdefault(t["categoria"], []).append(t)
     resumo["por_categoria"] = {}
+    # A publicação substitui todas as categorias próprias, inclusive as ausentes.
     for cat, ts in por_categoria.items():
         chave = f"{PADRAO_PERIODO_OBSERVADO}:{cat}"
         concl_cat = [t["concluido_em"] for t in ts if t["status"] == "concluida" and t["concluido_em"]]
@@ -334,36 +312,95 @@ def recalcular_aprendizado(id_usuario, agora=None):
         if padrao_cat and padrao_cat.get("confianca"):
             atual_cat = {"valor": padrao_cat["valor"], "confianca": padrao_cat["confianca"], "evidencias": padrao_cat.get("evidencias")}
         acao_cat, estado_cat = decidir_atualizacao(atual_cat, calcular_periodo_observado(concl_cat, agora))
-        if acao_cat in ("criar", "reforcar", "trocar"):
-            db.salvar_padrao_observado(id_usuario, chave, estado_cat["valor"], estado_cat["confianca"], estado_cat["n"])
+        if estado_cat:
+            padroes_novos[chave] = estado_cat
         resumo["por_categoria"][cat] = {"acao": acao_cat, "estado": estado_cat}
         for periodo, d in calcular_taxas_por_periodo(ts, agora).items():
             metricas_categoria[f"taxa_conclusao_{cat}_{periodo}"] = d["taxa"]
+            amostras[f"taxa_conclusao_{cat}_{periodo}"] = d["n"]
 
     # --- métricas (só com dados suficientes) ---
     metricas = {}
     for periodo, d in calcular_taxas_por_periodo(tarefas, agora).items():
         metricas[f"taxa_conclusao_{periodo}"] = d["taxa"]
         metricas[f"tarefas_encerradas_{periodo}"] = d["n"]
+        amostras[f"taxa_conclusao_{periodo}"] = d["n"]
     atraso = calcular_atraso_mediano_min(tarefas, agora)
     if atraso:
         metricas["atraso_mediano_min"] = atraso[0]
+        amostras["atraso_mediano_min"] = atraso[1]
     adiamento = calcular_taxa_adiamento(tarefas, eventos, agora)
     if adiamento:
         metricas["taxa_adiamento"] = adiamento[0]
-    contagem = db.contar_resultados_recomendacoes(id_usuario)
+        amostras["taxa_adiamento"] = adiamento[1]
+    contagem = db.contar_resultados_recomendacoes(id_usuario, desde=corte, ate=agora)
     total_reacoes = sum(contagem.values())
     if total_reacoes >= MIN_RESULTADOS_ACEITACAO:
         metricas["taxa_aceitacao_recomendacoes"] = round(contagem.get("aceitou", 0) / total_reacoes, 4)
+        amostras["taxa_aceitacao_recomendacoes"] = total_reacoes
 
     cronometrado = calcular_metricas_cronometro(tarefas, eventos, agora)   # [CRONOMETRO]
     if cronometrado:
         metricas.update(cronometrado)
     metricas.update(metricas_categoria)   # [POR-CATEGORIA]
-    for nome, valor in metricas.items():
-        db.salvar_metrica_unica(id_usuario, nome, valor, PERIODO_REF)
+    # Limite conservador: reavaliar diariamente ou antes da próxima mudança temporal.
+    limites = [agora + timedelta(days=1)]
+    for t in tarefas:
+        for campo in ("concluido_em", "data_fim"):
+            instante = t.get(campo)
+            if instante:
+                limites.extend(x if x > agora else agora + timedelta(microseconds=1)
+                               for x in (instante, instante + timedelta(days=JANELA_RECENTE_DIAS)) if x >= agora)
+    for e in eventos:
+        instante = e["data_hora"]
+        limites.extend(x if x > agora else agora + timedelta(microseconds=1)
+                       for x in (instante, instante + timedelta(days=JANELA_RECENTE_DIAS)) if x >= agora)
+    # Uma reação pode vencer antes das evidências de tarefas.
+    validade_reacoes = db.proxima_expiracao_resultados(id_usuario, corte, agora, JANELA_RECENTE_DIAS)
+    if validade_reacoes:
+        limites.append(validade_reacoes)
     resumo["metricas"] = metricas
+    resumo["amostras_metricas"] = amostras
+    resumo["validade"] = min(limites).isoformat()
+    db.publicar_aprendizado(id_usuario, padroes_novos, metricas, PERIODO_REF,
+                            agora, min(limites), resumo)
     return resumo
+
+
+# ============================================================
+# [LOTE-1.1] ATUALIZAÇÃO AO LER
+# ============================================================
+INTERVALO_MIN_TENTATIVAS_S = 300      # no máximo uma tentativa de recálculo por pessoa a cada 5 minutos
+_ultima_tentativa = {}
+_trava_tentativas = threading.Lock()
+
+
+def garantir_vigente(id_usuario, agora=None):
+    """
+    Para quem LÊ o aprendizado para decidir (sugerir horário, "o que fazer agora"): se não há um snapshot válido (nunca
+    calculado, vencido ou legado), recalcula ANTES de ler. Sem isso, quem fica um dia sem concluir ou editar tarefas
+    voltaria à preferência declarada sem que nada tivesse sido reavaliado.
+    Com trava de frequência (uma falha não vira uma tempestade de recálculos) e sem nunca levantar erro: se não for
+    possível verificar ou recalcular, a leitura segue (e, sem snapshot válido, o banco só devolve o declarado).
+    Devolve True se recalculou.
+    """
+    agora = agora or datetime.now()
+    try:
+        if db.aprendizado_vigente(id_usuario, agora):
+            return False
+    except Exception:
+        return False
+    with _trava_tentativas:
+        ultima = _ultima_tentativa.get(id_usuario)
+        if ultima is not None and time.monotonic() - ultima < INTERVALO_MIN_TENTATIVAS_S:
+            return False
+        _ultima_tentativa[id_usuario] = time.monotonic()
+    try:
+        recalcular_aprendizado(id_usuario, agora)
+        return True
+    except Exception:
+        log.exception("Falha ao atualizar o aprendizado vencido do usuário %s", id_usuario)
+        return False
 
 
 def apos_evento(id_usuario):
@@ -427,7 +464,7 @@ def obter_aprendizado(id_usuario):
     if declarado_energia in PERIODOS and observado_periodo in PERIODOS and declarado_energia != observado_periodo:
         saida["divergencia"] = (
             f"Declarou render mais de {declarado_energia}, mas conclui mais de {observado_periodo}. "
-            "O comportamento observado é um fato; o declarado é uma preferência."
+            "O horário do registro não comprova energia nem horário de execução."
         )
     if not metricas and not any(p["fonte"] == "observado" for p in padroes):
         saida["observacao"] = "Ainda não há histórico suficiente para padrões observados."

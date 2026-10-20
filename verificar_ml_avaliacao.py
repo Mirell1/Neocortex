@@ -87,14 +87,27 @@ checa("T2 (agendada às 12h do dia 2) ainda não conhece T3, que só termina no 
 checa("T4 conhece T1 (concluída), T2 (não concluída) e T3 (concluída): 2 de 3, suavizado: (2 + 2,5) / (3 + 5)", t4["n_tarefas_previas"] == 3 and abs(t4["taxa_pessoa_geral_previa"] - 4.5 / 8) < 1e-9)
 checa("a outra pessoa não interfere: sua única tarefa não sabe nada de ninguém", get(2, "2026-01-01 08:00")["n_tarefas_previas"] == 0)
 ordem = ml.historico_previo(df)["data_inicio"]; checa("o resultado vem ordenado por data de início (necessário para as janelas de tempo)", list(ordem) == sorted(ordem))
+print("\n=== 1b) RETROATIVO, CONCLUSÃO ANTECIPADA E A PRÓPRIA TAREFA (o que a definição antiga errava) ===")
+retro = pd.DataFrame([
+    {**base, "id_usuario": 7, "criado_em": D("2026-02-01 08:00"), "data_inicio": D("2026-02-02 09:00"), "data_fim": D("2026-02-02 10:00"), "concluido_em": D("2026-02-02 09:50")},   # R1: normal, concluída 10 min ANTES do prazo
+    {**base, "id_usuario": 7, "criado_em": D("2026-02-05 12:00"), "data_inicio": D("2026-02-02 14:00"), "data_fim": D("2026-02-02 15:00"), "concluido_em": D("2026-02-02 14:40")},   # R2: RETROATIVA: aconteceu dia 2, só foi registrada dia 5 (já concluída)
+    {**base, "id_usuario": 7, "criado_em": D("2026-02-02 09:30"), "data_inicio": D("2026-02-04 09:00"), "data_fim": D("2026-02-04 10:00"), "concluido_em": D("2026-02-02 09:45")},   # R3: concluída ANTECIPADAMENTE (prazo só no dia 4)
+    {**base, "id_usuario": 7, "criado_em": D("2026-02-03 08:00"), "data_inicio": D("2026-02-06 09:00"), "data_fim": D("2026-02-06 10:00"), "concluido_em": D("2026-02-06 10:00")},   # R4
+])
+hr = ml.historico_previo(retro).set_index("criado_em")
+r1, r2, r3, r4 = (hr.loc[D(x)] for x in ("2026-02-01 08:00", "2026-02-05 12:00", "2026-02-02 09:30", "2026-02-03 08:00"))
+checa("R1 (a primeira): não sabe nada", r1["n_tarefas_previas"] == 0 and r1["taxa_pessoa_geral_previa"] == 0.5)
+checa("R4 conhece só R1: R3, concluída antes do prazo, ainda não encerrou a coorte; R2 foi registrada DEPOIS e o sistema não a conhecia (antes: 3 tarefas, taxa 0,6875)", r4["n_tarefas_previas"] == 1 and abs(r4["taxa_pessoa_geral_previa"] - 3.5 / 6) < 1e-9)
+checa("R2 (retroativa) NÃO entra no próprio histórico e conhece R1 e R3, já com o prazo vencido (antes: contava a si mesma, 3 tarefas e taxa 0,6875)", r2["n_tarefas_previas"] == 2 and abs(r2["taxa_pessoa_geral_previa"] - 4.5 / 7) < 1e-9)
 d1 = dataset("rico", 8, 40, 3); hp = ml.historico_previo(d1)
 def referencia(d):    # implementação independente (máscaras do pandas), só para conferir a otimizada
     out = []
     for _, r in d.iterrows():
-        ant = d[d["id_usuario"] == r["id_usuario"]]; ok = ant["concluido_em"] < r["criado_em"]; enc = ok | (ant["data_fim"] < r["criado_em"]); n = int(enc.sum()); g = (ok[enc].sum() + 2.5) / (n + 5)
+        ant = d[d["id_usuario"] == r["id_usuario"]]; conh = ant["criado_em"] < r["criado_em"]; ok = conh & (ant["concluido_em"] < r["criado_em"]); enc = conh & (ant["data_fim"] < r["criado_em"]); n = int(enc.sum()); g = (ok[enc].sum() + 2.5) / (n + 5)
         mp = enc & (ant["periodo_agendado"] == r["periodo_agendado"]); out.append(((ok[mp].sum() + 5 * g) / (mp.sum() + 5), g, n))
     return np.array(out)
 ref = referencia(hp); checa("em 320 tarefas simuladas, o cálculo otimizado bate com uma implementação independente (taxa do período, taxa geral e contagem)", np.allclose(hp[["taxa_pessoa_periodo_previa", "taxa_pessoa_geral_previa", "n_tarefas_previas"]].values, ref))
+hr_cols = ["taxa_pessoa_periodo_previa", "taxa_pessoa_geral_previa", "n_tarefas_previas"]; hr_full = ml.historico_previo(retro); checa("nos casos retroativo e antecipado, o cálculo otimizado também bate com a implementação independente (não só com as contas à mão)", np.allclose(hr_full[hr_cols].values, referencia(hr_full)))
 # o teste mais importante: mudar o resultado de tarefas FUTURAS não pode mexer em nada do que se sabia ANTES
 mod = hp.copy(); fut = mod["data_inicio"] >= mod["data_inicio"].quantile(0.8); mod.loc[fut, "concluido_em"] = pd.NaT; mod.loc[fut, "concluida"] = False
 t0 = mod.loc[fut, "data_fim"].min(); h2 = ml.historico_previo(mod.drop(columns=["taxa_pessoa_periodo_previa", "taxa_pessoa_geral_previa", "n_tarefas_previas"])); h1 = ml.historico_previo(hp.drop(columns=["taxa_pessoa_periodo_previa", "taxa_pessoa_geral_previa", "n_tarefas_previas"]))
@@ -138,5 +151,56 @@ checa("com dados suficientes mostra uma linha por janela, o ganho médio, o efei
 import glob, re
 usam = [f for f in glob.glob("*.py") if f != "ml_preparacao.py" and not f.startswith(("test_", "atualizar_", "verificar_", "analise", "diagnostico", "simular", "seed", "corrigir")) and re.search(r"^\s*(import|from)\s+ml_preparacao", open(f, encoding="utf-8", errors="replace").read(), re.M)]
 checa(f"nenhum módulo do app importa o ml_preparacao (nada em produção depende dele): {usam or 'nenhum'}", usam == [])
+print("\n=== 6) POLÍTICA DE JANELAS: uma janela descartada não reduz o requisito em silêncio [LOTE-1.1] ===")
+d6 = dataset("rico", 30, 60, 3); reais = ml._avaliar_em_janelas(ml.historico_previo(d6), ml.FEATURES_NUMERICAS + ml.FEATURES_HISTORICO, 4)
+pronto_d6 = ml.prontidao_ml(d6)["pronto"]; checa("o cenário de teste passa na prontidão de dados (senão o teste pararia na barreira errada, sem chegar à política de janelas)", pronto_d6)
+checa(f"o cenário de teste tem as 4 janelas reais válidas (tem {len(reais)})", len(reais) == 4)
+_orig = (ml._avaliar_em_janelas, ml._ganho_da_janela)
+def com_ganhos(ganhos):
+    jan = [{**j, "_g": g} for j, g in zip(reais, ganhos)]; ml._avaliar_em_janelas = lambda *a, **k: jan; ml._ganho_da_janela = lambda j: j["_g"]
+    try: return ml.comparar_com_baseline(d6)
+    finally: ml._avaliar_em_janelas, ml._ganho_da_janela = _orig
+r1j, r2j = com_ganhos([0.5]), com_ganhos([0.05, 0.05])
+checa("só 1 janela válida (de 4), mesmo com ganho grande: dados insuficientes e segue com as regras (antes: 1 janela favorável bastava)", r1j["status"] == "dados_insuficientes" and r1j["decisao"] == "manter_regras" and "1 de 4" in r1j["detalhe"])
+checa("só 2 janelas válidas, as duas favoráveis: também insuficiente (antes: aprovava com 2 de 2)", r2j["status"] == "dados_insuficientes" and "2 de 4" in r2j["detalhe"] and "mínimo 3" in r2j["detalhe"])
+r3a, r3b = com_ganhos([0.05, 0.05, 0.05]), com_ganhos([0.05, 0.05, -0.01])
+checa("3 janelas válidas e as 3 favoráveis, com ganho médio >= 2%: aprova", r3a["status"] == "avaliado" and r3a["aprovado"] is True and r3a["decisao"] == "usar_modelo")
+checa("3 janelas válidas com uma desfavorável (média 3%, mas só 2 positivas): NÃO aprova", r3b["aprovado"] is False and r3b["decisao"] == "manter_regras")
+r4a, r4b = com_ganhos([0.05, 0.05, 0.05, 0.0]), com_ganhos([0.05, 0.05, 0.05, -0.2])
+checa("4 janelas, 3 favoráveis e ganho médio >= 2%: aprova ('3 de 4')", r4a["aprovado"] is True)
+checa("4 janelas, 3 favoráveis mas a quarta com perda grande (média negativa): NÃO aprova", r4b["aprovado"] is False)
+print("\n=== 7) EXTRAÇÃO: coorte por prazo e energia da ÉPOCA, nunca a de hoje [LOTE-1.1] ===")
+import contextlib
+EXEC = []
+def banco(modo):
+    class _Cur:
+        def __enter__(s): return s
+        def __exit__(s, *a): return False
+        def execute(s, sql, params=None):
+            EXEC.append(sql)
+            if modo == "sem_tabela" and "observacoes_energia" in sql: raise Exception('relation "observacoes_energia" does not exist')
+            if modo == "queda": raise Exception("connection lost")
+        def fetchall(s): return [{"id_tarefa": 1, "id_usuario": 1, "categoria": "estudo", "data_inicio": datetime(2026, 1, 2, 9), "data_fim": datetime(2026, 1, 2, 10), "criado_em": datetime(2026, 1, 1, 8),
+                                  "status": "concluida", "concluido_em": datetime(2026, 1, 2, 9, 50), "energia_declarada": None, "n_adiamentos": 0}]
+    class _Conn:
+        def __enter__(s): return s
+        def __exit__(s, *a): return False
+        def cursor(s): return _Cur()
+    @contextlib.contextmanager
+    def conectar(): yield _Conn()
+    return conectar
+_conectar = ml.db.conectar
+try:
+    ml.db.conectar = banco("ok"); EXEC.clear(); ml.extrair_features(agora=datetime(2026, 2, 1)); sql_ok = EXEC[0]
+    checa("a extração pede só tarefas com o PRAZO já vencido (coorte por prazo), e não 'concluídas OU vencidas'", "t.data_fim < %s" in sql_ok and "t.status = 'concluida'" not in sql_ok and len(EXEC) == 1)
+    checa("a energia vem da declaração que valia QUANDO A TAREFA FOI CRIADA (observado_em <= criado_em), não da de hoje", "observacoes_energia" in sql_ok and "o.observado_em <= t.criado_em" in sql_ok and "padroes_comportamentais" not in sql_ok)
+    ml.db.conectar = banco("sem_tabela"); EXEC.clear(); dfx = ml.extrair_features(agora=datetime(2026, 2, 1))
+    checa("sem a tabela de histórico, a extração NÃO quebra: refaz a consulta sem energia e marca 'desconhecida' (não inventa passado)", len(EXEC) == 2 and "NULL AS energia_declarada" in EXEC[1] and list(dfx["energia_declarada"]) == ["desconhecida"] and list(dfx["no_pico_declarado"]) == [0])
+    ml.db.conectar = banco("queda"); erro = None
+    try: ml.extrair_features(agora=datetime(2026, 2, 1))
+    except Exception as e: erro = str(e)
+    checa("qualquer outro erro do banco NÃO é engolido (só a ausência da tabela de histórico tem tratamento)", erro == "connection lost")
+finally:
+    ml.db.conectar = _conectar
 print("\nRESULTADO:", "TUDO CERTO" if not falhas else f"{len(falhas)} FALHA(S): {falhas}")
 sys.exit(1 if falhas else 0)

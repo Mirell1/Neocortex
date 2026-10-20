@@ -39,6 +39,17 @@ fake = types.SimpleNamespace(); sys.modules["db"].listar_tarefas = lambda uid, *
 sys.modules["db"].obter_padrao = lambda uid, tipo: SALVOS.get(tipo); sys.modules["db"].salvar_padrao_observado = lambda uid, tipo, v, c, n: SALVOS.__setitem__(tipo, {"valor": v})
 sys.modules["db"].substituir_memoria = lambda *a, **k: None; sys.modules["db"].salvar_metrica_unica = lambda uid, nome, valor, ref: METR.__setitem__(nome, valor); sys.modules["db"].contar_resultados_recomendacoes = lambda uid: {}
 ap.resolver_recomendacoes = lambda *a, **k: {}
+# Contrato temporal v1: adapta somente o dublê; as asserções originais permanecem.
+ap.db.listar_tarefas_aprendizado = lambda *a: TAREFAS
+ap.db.contar_resultados_recomendacoes = lambda *a, **k: {}
+ap.db.proxima_expiracao_resultados = lambda *a: None
+def publicar_fake(uid, padroes, metricas, ref, agora, valido_ate, detalhes):
+    SALVOS.clear()
+    SALVOS.update({k: {"valor":v["valor"],"confianca":v["confianca"],"evidencias":v["n"]} for k,v in padroes.items()})
+    METR.clear()
+    METR.update(metricas)
+ap.db.publicar_aprendizado = publicar_fake
+
 zera(); TAREFAS = [tarefa(60, c, l, dias_atras=d + 1) for d, (c, l) in enumerate(((10, 70), (20, 90), (15, 60), (25, 80), (5, 50), (30, 100)))]; ap.recalcular_aprendizado(1, AGORA)
 checa("com 6 tarefas cronometradas, o recálculo grava: atraso de início, excesso de duração e quantas tarefas cronometradas", METR.get("atraso_inicio_mediano_min") == 17.5 and METR.get("excesso_duracao_mediano_min") == 15.0 and METR.get("tarefas_cronometradas") == 6)
 METR.clear(); zera(); TAREFAS = [tarefa(60, 10, 70, cronometrar=False, dias_atras=d + 1) for d in range(8)]; ap.recalcular_aprendizado(1, AGORA)

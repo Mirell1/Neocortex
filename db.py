@@ -26,6 +26,128 @@ from dotenv import load_dotenv
 from psycopg2 import pool
 
 
+# Chaves pertencentes exclusivamente ao snapshot temporal v1.
+_PADROES_APRENDIZADO = ["periodo_conclusao_observado"] + [
+    f"periodo_conclusao_observado:{c}" for c in ("estudo", "trabalho", "hobby", "pessoal", "saude")
+]
+_METRICAS_APRENDIZADO = [
+    "atraso_mediano_min", "taxa_adiamento", "taxa_aceitacao_recomendacoes",
+    "excesso_duracao_mediano_min", "atraso_inicio_mediano_min", "tarefas_cronometradas",
+] + [f"{prefixo}_{p}" for prefixo in ("taxa_conclusao", "tarefas_encerradas") for p in ("manha", "tarde", "noite")] + [
+    f"taxa_conclusao_{c}_{p}" for c in ("estudo", "trabalho", "hobby", "pessoal", "saude")
+    for p in ("manha", "tarde", "noite")
+]
+
+
+def listar_tarefas_aprendizado(id_usuario, desde, ate):
+    """Coortes por prazo OU conclusão; inclui próximos prazos para expirar cache."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT * FROM tarefas WHERE id_usuario = %s AND (
+                    data_fim >= %s OR
+                    (status = 'concluida' AND concluido_em BETWEEN %s AND %s)
+                ) ORDER BY id_tarefa
+            """, (id_usuario, desde, desde, ate))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def proxima_expiracao_resultados(id_usuario, desde, ate, dias):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT MIN(rr.registrado_em) + %s * INTERVAL '1 day' AS limite
+                FROM resultados_recomendacoes rr
+                JOIN recomendacoes r USING (id_recomendacao)
+                WHERE r.id_usuario = %s AND rr.registrado_em BETWEEN %s AND %s
+            """, (dias, id_usuario, desde, ate))
+            limite = cur.fetchone()["limite"]
+            # Evidência exatamente no corte vale no instante, mas não depois.
+            from datetime import timedelta
+            return max(limite, ate + timedelta(microseconds=1)) if limite else None
+
+
+def aprendizado_vigente(id_usuario, agora=None):
+    """[LOTE-1.1] True se há um snapshot de aprendizado válido neste instante (a única definição de "vigente")."""
+    agora = agora or datetime.now()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT calculado_em, valido_ate FROM estado_aprendizado WHERE id_usuario = %s", (id_usuario,))
+            estado = cur.fetchone()
+    return bool(estado and estado["calculado_em"] <= agora < estado["valido_ate"])
+
+
+def filtrar_aprendizado_vigente(id_usuario, linhas, tipo, agora=None):
+    """Legado sem snapshot e snapshot vencido não orientam novas decisões."""
+    agora = agora or datetime.now()
+    if aprendizado_vigente(id_usuario, agora):
+        return linhas
+    if tipo == "padroes":
+        return [r for r in linhas if r["tipo_padrao"] not in _PADROES_APRENDIZADO or r.get("fonte") == "declarado"]
+    if tipo == "metricas":
+        return [r for r in linhas if not (r["nome_metrica"] in _METRICAS_APRENDIZADO and r.get("periodo_referencia") == "ultimos_60d")]
+    return [r for r in linhas if r.get("chave") != "periodo_conclusao_preferido" or r.get("origem") == "declarado"]
+
+
+def publicar_aprendizado(id_usuario, padroes, metricas, periodo, agora, valido_ate, detalhes):
+    """Substitui só o estado derivado próprio, atomicamente e isolado por usuário."""
+    if not set(padroes).issubset(_PADROES_APRENDIZADO) or not set(metricas).issubset(_METRICAS_APRENDIZADO):
+        raise ValueError("Snapshot contém chave de outro produtor")
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            # Serializa publicação por usuário; descarta cálculo iniciado antes de outro já publicado.
+            cur.execute("SELECT id_usuario FROM usuarios WHERE id_usuario = %s FOR UPDATE", (id_usuario,))
+            if not cur.fetchone():
+                raise ValueError("Usuário inexistente")
+            cur.execute("SELECT calculado_em FROM estado_aprendizado WHERE id_usuario = %s", (id_usuario,))
+            anterior = cur.fetchone()
+            if anterior and anterior["calculado_em"] > agora:
+                return False
+            cur.execute("DELETE FROM padroes_comportamentais WHERE id_usuario = %s AND fonte = 'observado' AND tipo_padrao = ANY(%s)",
+                        (id_usuario, _PADROES_APRENDIZADO))
+            for chave, estado in padroes.items():
+                cur.execute("""
+                    INSERT INTO padroes_comportamentais
+                    (id_usuario, tipo_padrao, valor, fonte, confianca, evidencias, calculado_em)
+                    VALUES (%s, %s, %s, 'observado', %s, %s, %s)
+                """, (id_usuario, chave, estado["valor"], estado["confianca"], estado["n"], agora))
+            cur.execute("DELETE FROM metricas WHERE id_usuario = %s AND periodo_referencia = %s AND nome_metrica = ANY(%s)",
+                        (id_usuario, periodo, _METRICAS_APRENDIZADO))
+            for nome, valor in metricas.items():
+                cur.execute("""
+                    INSERT INTO metricas (id_usuario, nome_metrica, valor, periodo_referencia, calculado_em)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (id_usuario, nome, valor, periodo, agora))
+            observado = padroes.get("periodo_conclusao_observado")
+            conteudo = f"Costuma registrar conclusões no período da {observado['valor']}." if observado else None
+            cur.execute("""
+                SELECT id_memoria, conteudo FROM memorias WHERE id_usuario = %s
+                AND chave = 'periodo_conclusao_preferido' AND origem = 'observado' AND ativa
+            """, (id_usuario,))
+            memoria = cur.fetchone()
+            if memoria and memoria["conteudo"] != conteudo:
+                cur.execute("UPDATE memorias SET ativa = FALSE, atualizado_em = %s WHERE id_memoria = %s",
+                            (agora, memoria["id_memoria"]))
+                memoria = None
+            if observado:
+                if memoria:
+                    cur.execute("UPDATE memorias SET confianca = %s, evidencias = %s, atualizado_em = %s WHERE id_memoria = %s",
+                                (observado["confianca"], observado["n"], agora, memoria["id_memoria"]))
+                else:
+                    cur.execute("""
+                        INSERT INTO memorias (id_usuario, chave, conteudo, origem, confianca, evidencias, atualizado_em)
+                        VALUES (%s, 'periodo_conclusao_preferido', %s, 'observado', %s, %s, %s)
+                    """, (id_usuario, conteudo, observado["confianca"], observado["n"], agora))
+            cur.execute("""
+                INSERT INTO estado_aprendizado (id_usuario, versao, calculado_em, valido_ate, detalhes)
+                VALUES (%s, 'temporal-v1', %s, %s, %s)
+                ON CONFLICT (id_usuario) DO UPDATE SET versao = EXCLUDED.versao,
+                    calculado_em = EXCLUDED.calculado_em, valido_ate = EXCLUDED.valido_ate,
+                    detalhes = EXCLUDED.detalhes
+            """, (id_usuario, agora, valido_ate, Json(detalhes)))
+    return True
+
+
 # ============================================================
 # CONFIGURAÇÃO
 # ============================================================
@@ -107,7 +229,8 @@ def criar_tabelas():
     ATENÇÃO: o ajuste de usuários faz TRUNCATE em usuarios. Aqui isso é
     inofensivo porque a função só funciona em banco vazio (o primeiro
     CREATE TABLE já falha se as tabelas existirem). Em um banco que já
-    tem dados, rode APENAS neocortex_aprendizado_migracao.sql (idempotente).
+    tem dados, rode apenas as migrações aditivas pendentes, incluindo
+    neocortex_aprendizado_temporal_migracao.sql. Nunca este instalador.
     """
     arquivos_schema = (
         BASE_DIR / "neocortex_schema_postgres.sql",
@@ -116,6 +239,8 @@ def criar_tabelas():
         BASE_DIR / "neocortex_ia_migracao.sql",
         BASE_DIR / "neocortex_aprendizado_migracao.sql",
         BASE_DIR / "neocortex_correcoes_migracao.sql",
+        BASE_DIR / "neocortex_cronometro_migracao.sql",
+        BASE_DIR / "neocortex_aprendizado_temporal_migracao.sql",
     )
 
     with conectar() as conn:
@@ -925,7 +1050,7 @@ def listar_padroes(id_usuario):
             )
             linhas = cur.fetchall()
 
-    return [dict(linha) for linha in linhas]
+    return filtrar_aprendizado_vigente(id_usuario, [dict(linha) for linha in linhas], "padroes")
 
 
 def obter_padrao(id_usuario, tipo_padrao):
@@ -1486,7 +1611,7 @@ def listar_metricas(id_usuario):
             )
             linhas = cur.fetchall()
 
-    return [dict(linha) for linha in linhas]
+    return filtrar_aprendizado_vigente(id_usuario, [dict(linha) for linha in linhas], "metricas")
 
 
 def atualizar_metrica(id_metrica, id_usuario, valor):
@@ -1558,7 +1683,7 @@ def listar_memorias_ativas(id_usuario, limite=20):
                 (id_usuario, limite),
             )
             linhas = cur.fetchall()
-    return [dict(linha) for linha in linhas]
+    return filtrar_aprendizado_vigente(id_usuario, [dict(linha) for linha in linhas], "memorias")
 
 
 def substituir_memoria(id_usuario, chave, conteudo, confianca, evidencias, origem="observado"):
@@ -1795,7 +1920,7 @@ def listar_recomendacoes_sem_resultado(id_usuario):
     return [dict(linha) for linha in linhas]
 
 
-def contar_resultados_recomendacoes(id_usuario):
+def contar_resultados_recomendacoes(id_usuario, desde=None, ate=None):
     """{'aceitou': n, 'recusou': n, 'adiou': n, 'ignorou': n} das recomendações do usuário."""
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -1805,9 +1930,11 @@ def contar_resultados_recomendacoes(id_usuario):
                 FROM resultados_recomendacoes rr
                 JOIN recomendacoes r ON r.id_recomendacao = rr.id_recomendacao
                 WHERE r.id_usuario = %s
+                  AND (%s IS NULL OR rr.registrado_em >= %s)
+                  AND (%s IS NULL OR rr.registrado_em <= %s)
                 GROUP BY rr.acao_usuario
                 """,
-                (id_usuario,),
+                (id_usuario, desde, desde, ate, ate),
             )
             linhas = cur.fetchall()
     return {linha["acao_usuario"]: linha["n"] for linha in linhas}

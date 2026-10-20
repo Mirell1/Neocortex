@@ -16,7 +16,7 @@ Uso (venv ativa, dentro da pasta do projeto):
 """
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -150,13 +150,16 @@ def preparar(energia, tarefas):
     return energia, tarefas
 
 
-def conclusoes_sem_lote(tarefas):
+def conclusoes_sem_lote(tarefas, agora=None):
     """
     concluido_em registra quando a pessoa CLICOU em concluir, nao quando fez.
     Quem marca varias tarefas de uma vez parece 'noturno' so por causa do
     horario do clique. Por isso, conclusoes muito proximas (mesmo lote)
     contam como UM evento.
     """
+    agora = pd.Timestamp(agora or datetime.now())
+    corte = agora - pd.Timedelta(days=60)
+    tarefas = tarefas[(tarefas["status"] == "concluida") & tarefas["concluido_em"].between(corte, agora)]
     c = tarefas.dropna(subset=["concluido_em"]).sort_values(["id_usuario", "concluido_em"]).copy()
     if c.empty:
         c["periodo"] = pd.Series(dtype="object")
@@ -179,7 +182,9 @@ def observado_por_usuario(eventos):
         .reindex(columns=PERIODOS, fill_value=0)
     )
     cont["total"] = cont[PERIODOS].sum(axis=1)
-    cont["observado"] = cont[PERIODOS].idxmax(axis=1)
+    topo = cont[PERIODOS].max(axis=1)
+    cont["empate"] = cont[PERIODOS].eq(topo, axis=0).sum(axis=1) > 1
+    cont["observado"] = cont[PERIODOS].idxmax(axis=1).where(~cont["empate"])
     cont["participacao_top"] = cont[PERIODOS].max(axis=1) / cont["total"]
     return cont[cont["total"] >= MIN_CONCLUSOES_USUARIO]
 
@@ -190,7 +195,7 @@ def comparar_declarado_observado(energia, obs):
         return vazio, vazio, vazio
     df = obs.reset_index().merge(energia, on="id_usuario", how="inner")
     # sem periodo dominante claro (conclusoes espalhadas) nao ha "pico observado"
-    claros = df[df["participacao_top"] >= PARTICIPACAO_MIN_DOMINANTE]
+    claros = df[(df["participacao_top"] >= PARTICIPACAO_MIN_DOMINANTE) & ~df["empate"]]
     comparaveis = claros[claros["energia_declarada"] != "nao_sei"].copy()
     comparaveis["concorda"] = comparaveis["energia_declarada"] == comparaveis["observado"]
     return df, claros, comparaveis
@@ -206,7 +211,10 @@ def taxa_conclusao_no_pico(tarefas, energia, agora):
         energia[energia["energia_declarada"].isin(PERIODOS)], on="id_usuario", how="inner"
     )
     aberta_vencida = base["status"].isin(["pendente", "em_andamento"]) & (base["data_fim"] < agora)
-    encerradas = base[(base["status"] == "concluida") | aberta_vencida].copy()
+    base = base[(base["data_fim"] >= agora - pd.Timedelta(days=60)) & (base["data_fim"] < agora)]
+    concluida_valida = (base["status"] == "concluida") & base["concluido_em"].notna() & (base["concluido_em"] <= agora)
+    aberta_vencida = base["status"].isin(["pendente", "em_andamento"])
+    encerradas = base[concluida_valida | aberta_vencida].copy()
     if encerradas.empty:
         return pd.DataFrame(), 0
 
@@ -223,7 +231,7 @@ def taxa_conclusao_no_pico(tarefas, energia, agora):
 def relatorio(energia, tarefas):
     agora = pd.Timestamp(datetime.now())
 
-    eventos, n_conclusoes, n_eventos = conclusoes_sem_lote(tarefas)
+    eventos, n_conclusoes, n_eventos = conclusoes_sem_lote(tarefas, agora)
     obs = observado_por_usuario(eventos)
     df_obs, claros, comparaveis = comparar_declarado_observado(energia, obs)
     resumo_pico, n_usuarios_pico = taxa_conclusao_no_pico(tarefas, energia, agora)
@@ -233,7 +241,7 @@ def relatorio(energia, tarefas):
     print(f"Pessoas com energia declarada ............ {len(energia)}")
     if len(energia):
         print("  distribuicao:", energia["energia_declarada"].value_counts().to_dict())
-    print(f"Conclusoes registradas ................... {n_conclusoes}")
+    print(f"Conclusoes registradas nos ultimos 60 dias: {n_conclusoes}")
     if n_conclusoes:
         pct_lote = 1 - n_eventos / n_conclusoes
         print(f"  feitas em lote (< {JANELA_LOTE_MIN} min entre si) ....... {pct_lote:.0%} (cada lote conta 1 vez)")
@@ -245,7 +253,7 @@ def relatorio(energia, tarefas):
         print("Conclusoes por periodo:", distribuicao.to_dict())
 
     # 2. Declarado x observado
-    titulo("2. ENERGIA DECLARADA x PERIODO OBSERVADO (por pessoa)")
+    titulo("2. ENERGIA DECLARADA ATUAL x PERIODO DE REGISTRO DE CONCLUSAO")
     print(f"Com periodo dominante claro (>= {PARTICIPACAO_MIN_DOMINANTE:.0%} das conclusoes): {len(claros)}")
     print(f"Comparaveis (sem 'nao_sei') .............. {len(comparaveis)}")
     tabela_cruzada = None
@@ -254,7 +262,7 @@ def relatorio(energia, tarefas):
     else:
         concordam = int(comparaveis["concorda"].sum())
         print("Concordancia declarado = observado:", formatar_taxa(concordam, len(comparaveis)))
-        print("  (referencia aproximada: ~33% seria o esperado por acaso, com 3 periodos)")
+        print("  (concordancia descritiva; nao demonstra energia nem causalidade)")
         tabela_cruzada = pd.crosstab(
             comparaveis["energia_declarada"], comparaveis["observado"]
         ).reindex(index=PERIODOS, columns=PERIODOS, fill_value=0)
@@ -265,7 +273,7 @@ def relatorio(energia, tarefas):
     titulo("3. TAXA DE CONCLUSAO: TAREFAS NO PICO DECLARADO x FORA DELE")
     total_encerradas = int(resumo_pico["total"].sum()) if not resumo_pico.empty else 0
     print(f"Tarefas encerradas consideradas .......... {total_encerradas} (de {n_usuarios_pico} pessoas)")
-    print("  encerrada = concluida, ou pendente/em andamento com prazo vencido; canceladas ficam de fora")
+    print("  coorte = prazo vencido nos ultimos 60 dias; canceladas e conclusoes sem data valida ficam de fora")
     grupos = resumo_pico.to_dict("index") if not resumo_pico.empty else {}
     if set(grupos) != {True, False} or min(g["total"] for g in grupos.values()) < MIN_TAREFAS_GRUPO:
         print(f"Dados insuficientes: minimo de {MIN_TAREFAS_GRUPO} tarefas em cada grupo.")
@@ -277,10 +285,8 @@ def relatorio(energia, tarefas):
         baixo2, alto2 = intervalo_wilson(fora["sucessos"], fora["total"])
         diferenca = no["sucessos"] / no["total"] - fora["sucessos"] / fora["total"]
         print(f"Diferenca: {diferenca * 100:+.1f} pontos percentuais")
-        if max(baixo1, baixo2) <= min(alto1, alto2):
-            print("Os intervalos se sobrepoem: nao ha evidencia clara de diferenca com esses dados.")
-        else:
-            print("Os intervalos nao se sobrepoem: ha indicio de diferenca (ainda sem controlar categoria/turno).")
+        print("Intervalos descritivos por tarefa: nao corrigem dependencia entre tarefas da mesma pessoa.")
+        print("A sobreposicao dos intervalos nao substitui um teste da diferenca entre grupos.")
 
     # 4. Limitacoes
     titulo("4. COMO LER ESTE RELATORIO")

@@ -725,21 +725,44 @@ def tarefas_filtradas(id_usuario, filtro, categoria=None):
     return lista
 
 
+def _cronometro_ativo():
+    """[CRONOMETRO-DISCRETO] Opcional: a pessoa pode desligar os botões 'Começar' em Configurações. Ligado por padrão."""
+    try:
+        return db.buscar_preferencia(usuario_logado(), "cronometro_ativo") != "false"
+    except Exception:
+        return True
+
+
 def _anexar_cronometro(tarefas):
-    """[CRONOMETRO] Acrescenta a cada tarefa o estado do cronômetro opcional (só quem está em andamento precisa de consulta)
-    e se vale oferecer 'Começar'. Nunca derruba a tela de Tarefas."""
-    hoje = datetime.now().date()
+    """
+    [CRONOMETRO] Acrescenta a cada tarefa o estado do cronômetro opcional (só quem está em andamento precisa de consulta),
+    se vale oferecer 'Começar' e QUAL tarefa recebe o botão em destaque.
+    [CRONOMETRO-DISCRETO] Para a tela não ficar poluída: só a PRÓXIMA tarefa (a que está valendo agora ou vem em seguida) ganha a
+    pílula 'Começar'; as outras ganham só o ícone ▶; e com um cronômetro rodando ninguém ganha pílula. Quem desligou o cronômetro
+    em Configurações não vê 'Começar' (o que já está em andamento continua podendo pausar e concluir).
+    Nunca derruba a tela de Tarefas.
+    """
+    agora_local = datetime.now()
+    hoje = agora_local.date()
+    ativo = _cronometro_ativo()
     agora = None
+    ha_rodando = False
     for t in tarefas:
         t["cronometro"] = None
-        t["pode_comecar"] = t["status"] == "pendente" and t["data_inicio"].date() <= hoje
+        t["comecar_destaque"] = False
+        t["pode_comecar"] = ativo and t["status"] == "pendente" and t["data_inicio"].date() <= hoje
         if t["status"] == "em_andamento":
             try:
                 agora = agora or servicos.hora_do_cronometro()
                 estado = servicos.estado_do_cronometro(usuario_logado(), t["id_tarefa"], agora)
                 t["cronometro"] = {**estado, "rotulo": cronometro.rotulo_tempo(estado["acumulado_s"])}
+                ha_rodando = ha_rodando or estado["estado"] == "rodando"
             except Exception:
                 t["cronometro"] = None
+    if not ha_rodando:
+        proximas = [t for t in tarefas if t["pode_comecar"] and t.get("data_fim") and t["data_fim"] >= agora_local]
+        if proximas:
+            min(proximas, key=lambda t: t["data_inicio"])["comecar_destaque"] = True
     return tarefas
 
 
@@ -1937,6 +1960,7 @@ def configuracoes():
     return render_template(
         "configuracoes.html",
         notificacoes_ativas=notificacoes_ativas,
+        cronometro_ativo=_cronometro_ativo(),   # [CRONOMETRO-DISCRETO]
         **_pagina("configuracoes", "Configurações"),
     )
 
@@ -2006,6 +2030,15 @@ def exportar_dados():
         mimetype="application/json",
         headers={"Content-Disposition": "attachment; filename=neocortex-dados.json"},
     )
+
+
+@app.route("/configuracoes/cronometro", methods=["POST"])
+@login_obrigatorio
+def salvar_cronometro():
+    """[CRONOMETRO-DISCRETO] Liga ou desliga os botões 'Começar' das tarefas. O que já está em andamento continua podendo pausar e concluir."""
+    ativado = request.form.get("cronometro_ativo") == "on"
+    db.salvar_preferencia(usuario_logado(), "cronometro_ativo", "true" if ativado else "false")
+    return redirect(url_for("configuracoes"))
 
 
 @app.route("/configuracoes/notificacoes", methods=["POST"])

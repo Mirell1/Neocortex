@@ -19,3 +19,7 @@ desktop.ini
 
 *.bak*
 analise_saida/
+
+backup_mvp_*/
+*.bak*
+analise_saida/

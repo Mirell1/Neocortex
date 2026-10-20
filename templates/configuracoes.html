@@ -57,14 +57,14 @@
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
           <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Alto contraste</p>
-          <input type="checkbox" name="acess_contraste" value="alto" {{ 'checked' if acess_contraste == 'alto' }}
+          <input type="checkbox" name="acess_contraste" aria-label="Alto contraste" value="alto" {{ 'checked' if acess_contraste == 'alto' }}
                  onchange="this.form.querySelector('[name=acess_contraste_oculto]').value = this.checked ? 'alto' : 'normal'; this.form.submit();">
           <input type="hidden" name="acess_contraste_oculto" value="{{ acess_contraste }}">
         </div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Fonte para dislexia (Lexend)</p>
-          <input type="checkbox" name="acess_tipografia" value="dislexia" {{ 'checked' if acess_tipografia == 'dislexia' }}
+          <input type="checkbox" name="acess_tipografia" aria-label="Fonte para dislexia (Lexend)" value="dislexia" {{ 'checked' if acess_tipografia == 'dislexia' }}
                  onchange="this.form.querySelector('[name=acess_tipografia_oculto]').value = this.checked ? 'dislexia' : 'padrao'; this.form.submit();">
           <input type="hidden" name="acess_tipografia_oculto" value="{{ acess_tipografia }}">
         </div>
@@ -178,7 +178,18 @@
         </div>
         <form method="POST" action="{{ url_for('salvar_notificacoes') }}" style="margin:0;">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="checkbox" name="notificacoes_ativas" {{ 'checked' if notificacoes_ativas else '' }} onchange="this.form.submit()">
+          <input type="checkbox" name="notificacoes_ativas" aria-label="Receber notificações" {{ 'checked' if notificacoes_ativas else '' }} onchange="this.form.submit()">
+        </form>
+      </div>
+      <div style="height:1px;background:var(--nc-border);"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;">   {# [CRONOMETRO-DISCRETO] #}
+        <div>
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Cronômetro nas tarefas</p>
+          <p style="margin:0;font-size:11px;color:var(--nc-text2);">Opcional. Mostra o botão ▶ para cronometrar uma tarefa. Desligar só esconde os botões de começar.</p>
+        </div>
+        <form method="POST" action="{{ url_for('salvar_cronometro') }}" style="margin:0;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="checkbox" name="cronometro_ativo" aria-label="Mostrar o cronômetro nas tarefas" {{ 'checked' if cronometro_ativo else '' }} onchange="this.form.submit()">
         </form>
       </div>
       <div style="height:1px;background:var(--nc-border);"></div>

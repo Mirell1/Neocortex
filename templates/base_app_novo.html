@@ -32,10 +32,12 @@
   {% if tema_ativo and tema_ativo != 'padrao' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='tema_' ~ tema_ativo ~ '.css') }}">
   {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='responsivo.css') }}">   {# [RESPONSIVO] #}
 </head>
 <body>
   <div class="app-shell">
-    <div class="app-sidebar">
+    <div class="app-menu-fundo" id="menuFundo" hidden></div>
+    <div class="app-sidebar" id="menuLateral">
       <div class="blob blob1"></div>
       <div class="blob blob2"></div>
       <div class="brand"><img src="{{ url_for('static', filename='logo.png') }}" alt="NEOCORTEX"></div>
@@ -52,7 +54,10 @@
     </div>
     <div class="app-main">
       <div class="app-topbar">
-        <h2>{{ titulo_pagina }}</h2>
+        <div class="app-topbar-esq">
+          <button type="button" class="app-menu-btn" id="btnMenu" aria-label="Abrir menu" aria-controls="menuLateral" aria-expanded="false">☰</button>
+          <h2>{{ titulo_pagina }}</h2>
+        </div>
         <div style="display:flex;align-items:center;gap:14px;">
           {% block topbar_extra %}{% endblock %}
           <div class="avatar">{{ inicial_usuario }}</div>
@@ -78,6 +83,27 @@
     </script>
     <script src="{{ url_for('static', filename='mascote_robo.js') }}" defer></script>
   {% endif %}
+
+  <script>
+  /* [RESPONSIVO] menu em gaveta (celular e tablet): abre pelo botão ☰ e fecha ao tocar fora, com Esc ou ao escolher uma tela */
+  (function () {
+    var shell = document.querySelector('.app-shell'), btn = document.getElementById('btnMenu');
+    var fundo = document.getElementById('menuFundo'), menu = document.getElementById('menuLateral');
+    if (!shell || !btn || !fundo || !menu) return;
+    function abrir(aberto) {
+      shell.classList.toggle('menu-aberto', aberto); fundo.hidden = !aberto;
+      btn.setAttribute('aria-expanded', aberto ? 'true' : 'false'); btn.setAttribute('aria-label', aberto ? 'Fechar menu' : 'Abrir menu');
+      if (aberto) { var a = menu.querySelector('a'); if (a) a.focus(); } else { btn.focus(); }
+    }
+    btn.addEventListener('click', function () { abrir(!shell.classList.contains('menu-aberto')); });
+    fundo.addEventListener('click', function () { abrir(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && shell.classList.contains('menu-aberto')) abrir(false); });
+    menu.addEventListener('click', function (e) { if (e.target.closest('a')) abrir(false); });
+    var largo = window.matchMedia('(min-width: 901px)');
+    function aoMudar(m) { if (m.matches && shell.classList.contains('menu-aberto')) { shell.classList.remove('menu-aberto'); fundo.hidden = true; btn.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-label', 'Abrir menu'); } }
+    if (largo.addEventListener) largo.addEventListener('change', aoMudar); else if (largo.addListener) largo.addListener(aoMudar);
+  })();
+  </script>
 
   <div vw class="enabled">
     <div vw-access-button class="active"></div>

@@ -1,0 +1,18 @@
+/* NEOCORTEX - ajustes.css
+   Ajustes visuais pequenos, carregados DEPOIS do common.css (por isso não precisam mexer nele). */
+
+/* ---- botão "+" fixo na tela, igual ao mascote ----
+   Antes ele era "absolute" dentro da área que rola: ia embora com a rolagem enquanto o mascote ficava parado. */
+.fab { position: fixed; bottom: 32px; right: 36px; z-index: 30; }
+/* o zoom de fonte (Configurações > Acessibilidade) é aplicado no app-shell e aumentaria o botão e o afastaria do canto;
+   o mascote fica fora do app-shell, então compensamos aqui para os dois continuarem alinhados */
+html[data-fonte="grande"] .fab { zoom: 0.8696; }   /* 1 / 1.15 */
+html[data-fonte="maior"] .fab { zoom: 0.7692; }    /* 1 / 1.3  */
+
+/* ---- barras de progresso que sobem suave ao abrir a tela ----
+   O .nc-barra-progresso (Início clássico) e qualquer barra com o atributo data-anima-barra. */
+@keyframes nc-encher-barra { from { width: 0; } }
+.nc-barra-progresso, [data-anima-barra] { animation: nc-encher-barra 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .nc-barra-progresso, [data-anima-barra] { animation: none; }
+}

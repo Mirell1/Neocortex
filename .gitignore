@@ -1,2 +1,25 @@
+# Segredos e configuração local
 .env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Saída da análise (gerada por analise_energia.py)
+analise_saida/
+
+# Windows
 desktop.ini
+
+
+*.bak*
+
+*.bak*
+analise_saida/
+
+backup_mvp_*/
+*.bak*
+analise_saida/

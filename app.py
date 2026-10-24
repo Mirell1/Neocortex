@@ -1,32 +1,404 @@
 """
 NEOCORTEX — app.py (Flask)
-O "zelador da casa": decide qual página HTML mostrar, busca os dados
-no db.py quando precisa, e entrega a página pronta pro navegador.
+
+Decide qual página mostrar e entrega a página pronta. NÃO contém regra de
+negócio: criar/editar/concluir tarefas e rotina passam por servicos.py (as
+mesmas funções que a IA usa) e o calendário vem de agenda.py (a mesma agenda que
+a IA consulta).
 """
 
+import json
+import math
 import os
-import pandas as pd
-import plotly.express as px
-from flask import Flask, render_template, request, redirect, url_for, session
+import time
+import calendar as calendario_lib
+from functools import wraps
+from datetime import date, datetime, timedelta
 
+
+import bcrypt
+from flask import Flask, Response, abort, jsonify, make_response, redirect, render_template, request, send_from_directory, session, url_for
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+import agenda
+import ai
 import db
+import servicos
+import cronometro
+import decisao
+import seguranca
+
+import markdown as markdown_lib
+import bleach
 
 app = Flask(__name__)
 
-# Chave usada pelo Flask pra "assinar" o cookie de sessão (quem está
-# logado). Em produção, isso também deveria vir do .env — por ora,
-# um valor fixo simples já resolve pro MVP.
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "troque-essa-chave-em-producao")
+# Chave que assina o cookie de sessão. Vem do .env (gere com: python -c "import secrets; print(secrets.token_hex(32))").
+app.secret_key = os.environ["FLASK_SECRET_KEY"]
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "0") == "1",   # use 1 em produção (HTTPS)
+)
+
+csrf = CSRFProtect(app)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024    # [SEGURANÇA] nenhuma tela envia arquivo: recusa corpos grandes (erro 413)
+
+# [SEGURANÇA] Atrás de um proxy (ex.: Render) o IP real vem em X-Forwarded-For. Só confiamos nesse cabeçalho com NEOCORTEX_PROXY=1:
+# sem o proxy, qualquer pessoa poderia forjá-lo e escapar do limite de tentativas de login.
+if os.getenv("NEOCORTEX_PROXY", "0") == "1":
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
+# [SEGURANÇA] Limite de tentativas de login (janela de 15 minutos): por conta+IP e, mais folgado, por IP (quem testa várias contas).
+LOGIN_MAX_TENTATIVAS = int(os.getenv("LOGIN_MAX_TENTATIVAS", "5"))
+LOGIN_ATRASO_MINIMO = float(os.getenv("LOGIN_ATRASO_MINIMO", "0.4"))   # toda falha demora pelo menos isso (esconde se o e-mail existe)
+LIMITE_LOGIN = seguranca.LimiteTentativas(maximo=LOGIN_MAX_TENTATIVAS, janela=900)
+LIMITE_LOGIN_IP = seguranca.LimiteTentativas(maximo=4 * LOGIN_MAX_TENTATIVAS, janela=900)
+
+# Conflito de agenda na tela:
+#   confirmar (padrão) = mostra o conflito e só salva se o usuário confirmar (igual à IA)
+#   avisar             = salva mesmo assim
+CONFLITO_UI_MODO = os.getenv("NEOCORTEX_CONFLITO_UI", "confirmar").strip().lower()
+
+GAMIFICACAO_ATIVA = os.getenv("NEOCORTEX_GAMIFICACAO", "1") == "1"
+INTENSIDADES_MASCOTE = {"completa", "reduzida", "desligada"}
+
+FAIXAS_ETARIAS_VALIDAS = {"18-24", "25-34", "35-44", "45+"}   # igual ao CHECK do banco
+OCUPACOES_VALIDAS = {"trabalha", "estuda", "ambos", "nenhum"}
+TURNOS_VALIDOS = {"manha", "tarde", "noite", "intermediario", "personalizado"}
+ENERGIAS_VALIDAS = {"manha", "tarde", "noite", "nao_sei"}
+_VERDADEIRO = {"1", "true", "on", "sim", "yes"}
+
+MAX_CARACTERES_MENSAGEM = 1000
+
+DIAS_SEMANA_VALIDOS = set(agenda.DIAS_SEMANA)
+DIAS_SEMANA_ORDEM = list(agenda.DIAS_SEMANA)
+DIAS_SEMANA_LABEL = {"segunda": "Segunda", "terca": "Terça", "quarta": "Quarta",
+                     "quinta": "Quinta", "sexta": "Sexta", "sabado": "Sábado", "domingo": "Domingo"}
+DIAS_SEMANA_PT = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
+                  "sexta-feira", "sábado", "domingo"]
+MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho",
+            "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+
+COR_POR_STATUS = {
+    "pendente": "#2563EB",
+    "em_andamento": "#F59E0B",
+    "concluida": "#22C55E",
+    "cancelada": "#9CA3AF",
+}
+COR_COMPROMISSO = "#8B5CF6"
+COR_ROTINA = "#94A3B8"
+
+COR_ATRASADA = "#C98A82"  # terracota suave — mesmo princípio de "sem alarme" de antes
 
 
+# [TEMA] catálogo de temas. O padrão é sempre liberado; os outros são recompensa.
+TEMAS = {
+    "padrao": {"nome": "Padrão", "mascote": "robo", "mascote_nome": "Robô",
+               "descricao": "O visual original do NEOCORTEX.", "como_liberar": ""},
+    # [TEMA] cada tema tem 2 versões: 1 = simples (cores e tipografia), 2 = completa (mascote,
+    # semana temática, vocabulário e falas). Cada área do sistema libera o seu tema.
+    "cafeteria": {"nome": "Cafeteria", "mascote": "grao", "mascote_nome": "Grão", "area": "Objetivos",
+                  "descricao": "Tons de café e o Grão como mascote.",
+                  "como_liberar": "Crie seu primeiro objetivo para liberar.",
+                  "como_completar": "Divida um objetivo em fragmentos para liberar a versão completa, com o Grão."},
+    "campeonato": {"nome": "Campeonato", "mascote": "boltz", "mascote_nome": "Boltz", "area": "Tarefas",
+                   "descricao": "Futebol: verde e dourado, com o Boltz como mascote.",
+                   "como_liberar": "Conclua todas as tarefas de um dia para liberar.",
+                   "como_completar": "Remarque uma tarefa atrasada em vez de deixá-la pra trás para liberar a versão completa, com o Boltz."},
+    "papelaria": {"nome": "Papelaria", "mascote": "rabisco", "mascote_nome": "Rabisco", "area": "Rotina Fixa",
+                  "descricao": "Papel, canetas e marca-texto, com o Rabisco como mascote.",
+                  "como_liberar": "Monte uma rotina fixa com blocos em pelo menos 3 dias da semana para liberar.",
+                  "como_completar": "Mantenha sua rotina montada por 7 dias para liberar a versão completa, com o Rabisco."},
+}
+
+# [PERSONALIZAR] paleta de cores do mascote. "padrao" não muda nada: cada mascote mantém a cor dele.
+# A cor pinta os detalhes que brilham (luzes do robô, faixa do Grão, costuras e chuteiras do Boltz).
+CORES_MASCOTE = [
+    {"id": "padrao",  "nome": "Original", "cor": "",        "brilho": ""},
+    {"id": "azul",    "nome": "Azul",     "cor": "#3B82F6", "brilho": "#DBEAFE"},
+    {"id": "verde",   "nome": "Verde",    "cor": "#18A575", "brilho": "#D8EFE5"},
+    {"id": "rosa",    "nome": "Rosa",     "cor": "#E0629A", "brilho": "#FBD5E5"},
+    {"id": "laranja", "nome": "Laranja",  "cor": "#E8892B", "brilho": "#FDE6CC"},
+    {"id": "roxo",    "nome": "Roxo",     "cor": "#8C7BFF", "brilho": "#D3CCFF"},
+]
+
+# [TEMA] só para gravar a apresentação: libera todos os temas e acessórios. Nunca em produção.
+MODO_DEMO = os.getenv("NEOCORTEX_DEMO", "0") == "1"
+if MODO_DEMO and app.config["SESSION_COOKIE_SECURE"]:
+    raise RuntimeError("NEOCORTEX_DEMO=1 não pode ser usado com SESSION_COOKIE_SECURE=1 (produção).")
+
+
+def status_visual(tarefa):
+    agora = datetime.now()
+
+    if tarefa["status"] in ("concluida", "cancelada", "em_andamento"):
+        label = {"concluida": "concluída", "em_andamento": "em andamento", "cancelada": "cancelada"}[tarefa["status"]]
+        return label, COR_POR_STATUS[tarefa["status"]]
+
+    if tarefa["data_fim"] < agora:
+        return "atrasada", COR_ATRASADA
+
+    return "pendente", COR_POR_STATUS["pendente"]
+
+
+app.jinja_env.globals["status_visual"] = status_visual
+
+
+# ============================================================
+# AUXILIARES
+# ============================================================
 def usuario_logado():
     """Devolve o id do usuário logado, ou None se ninguém estiver logado."""
     return session.get("id_usuario")
 
 
+@app.route("/favicon.ico")
+def favicon():
+    """Ícone da aba. Rota PÚBLICA: o navegador pede /favicon.ico sozinho, inclusive nas telas de login e cadastro."""
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon", max_age=86400)
+
+
+# status como o usuário lê: "em_andamento" -> "em andamento". Uso nos templates: {{ objetivo.status|status_legivel }}
+STATUS_LEGIVEL = {
+    "em_andamento": "em andamento", "concluido": "concluído", "concluida": "concluída", "pausado": "pausado", "pausada": "pausada",
+    "cancelado": "cancelado", "cancelada": "cancelada", "pendente": "pendente",
+}
+
+
+@app.template_filter("status_legivel")
+def status_legivel(valor):
+    texto = "" if valor is None else str(valor)
+    return STATUS_LEGIVEL.get(texto, texto.replace("_", " "))
+
+
+@app.after_request
+def _cabecalhos_de_seguranca(resposta):
+    return seguranca.aplicar_cabecalhos(resposta, https=app.config["SESSION_COOKIE_SECURE"], endpoint=request.endpoint)
+
+
+def _quer_json():
+    return request.path.startswith("/api/") or request.is_json or request.accept_mimetypes.best == "application/json"
+
+
+def _pagina_de_erro(codigo, titulo, mensagem):
+    """Erro amigável, sem detalhe técnico. Renderiza sem os context processors: eles consultam o banco e o erro pode ser o próprio banco."""
+    if _quer_json():
+        return jsonify({"erro": mensagem}), codigo
+    destino = url_for("dashboard") if usuario_logado() else url_for("tela_login")
+    html = app.jinja_env.get_template("erro.html").render(codigo=codigo, titulo=titulo, mensagem=mensagem, destino=destino)
+    return make_response(html, codigo)
+
+
+@app.errorhandler(404)
+def _erro_404(_e):
+    return _pagina_de_erro(404, "Página não encontrada", "O endereço que você abriu não existe ou foi movido.")
+
+
+@app.errorhandler(405)
+def _erro_405(_e):
+    return _pagina_de_erro(405, "Ação não permitida", "Esse endereço não aceita esse tipo de acesso.")
+
+
+@app.errorhandler(413)
+def _erro_413(_e):
+    return _pagina_de_erro(413, "Envio grande demais", "O que você enviou passou do tamanho permitido.")
+
+
+@app.errorhandler(429)
+def _erro_429(_e):
+    return _pagina_de_erro(429, "Muitas tentativas", "Aguarde um pouco e tente de novo.")
+
+
+@app.errorhandler(CSRFError)
+def _erro_csrf(_e):
+    return _pagina_de_erro(400, "Sua sessão de segurança expirou", "Volte, recarregue a página e tente de novo.")
+
+
+@app.errorhandler(500)
+def _erro_500(_e):
+    return _pagina_de_erro(500, "Algo deu errado do nosso lado", "O problema foi registrado. Tente de novo em instantes.")
+
+
+def login_obrigatorio(rota):
+    @wraps(rota)
+    def protegida(*args, **kwargs):
+        if not usuario_logado():
+            return redirect(url_for("tela_login"))
+        return rota(*args, **kwargs)
+    return protegida
+
+
+def _inicial():
+    return (session.get("nome") or "?")[0].upper()
+
+
+def _pagina(pagina, titulo, **extra):
+    """Variáveis que todo template de página logada recebe."""
+    return {"pagina": pagina, "titulo_pagina": titulo, "inicial_usuario": _inicial(), **extra}
+
+
+def _confirmou_conflito():
+    return CONFLITO_UI_MODO == "avisar" or request.form.get("confirmar_conflito") in _VERDADEIRO
+
+
+def _confirmou_conflito_passos(valor):
+    """[CONFLITO-PASSOS] 'avisar' grava sem perguntar; 'confirmar' (o padrão) só grava se a pessoa disse 'adicionar mesmo assim'."""
+    return CONFLITO_UI_MODO == "avisar" or valor is True or str(valor).strip().lower() in _VERDADEIRO
+
+
+def _resposta_conflito_passos(conflitos):
+    """409 com o que bate com o quê; nada foi gravado. A prévia mostra o texto e oferece 'Adicionar mesmo assim'."""
+    linhas = []
+    for c in conflitos:
+        inicio = datetime.fromisoformat(c["inicio"])
+        linhas.append(f"Passo {c['indice'] + 1} ({inicio:%d/%m %H:%M}): " + servicos.descrever_conflitos(c["conflitos"]))
+    return jsonify(erro="Há conflito de horário:\n" + "\n".join(linhas), conflitos=conflitos, exige_confirmacao=True), 409
+
+
+def _mascote_evento(tipo, **dados):
+    """[MASCOTE] Guarda uma reação pra próxima página mostrar (as rotas terminam em redirect)."""
+    if not GAMIFICACAO_ATIVA:
+        return
+    fila = session.get("mascote_eventos", [])
+    fila.append({"tipo": tipo, "dados": dados})
+    session["mascote_eventos"] = fila[-3:]   # nunca acumula mais que 3
+
+
+NIVEL_SIMPLES, NIVEL_COMPLETO = 1, 2
+
+# [INTERFACE] A interface CLÁSSICA (a original do NEOCORTEX) é a base de todo mundo. A IMERSIVA (semana desenhada,
+# mascote no cartão de boas-vindas, vocabulário do tema) é um prêmio adicional: libera com 100 pontos
+# (nível "Pegando o ritmo"), nunca volta a bloquear, liga sozinha e a pessoa pode voltar à clássica em Configurações.
+PONTOS_INTERFACE_IMERSIVA = 100
+
+
+def _nivel_tema(id_usuario, tid):
+    """[TEMA] 0 = bloqueado, 1 = versão simples, 2 = versão completa.
+    O padrão é sempre completo. Compatibilidade: quem já tinha o tema liberado pelas regras
+    antigas (que hoje são as da versão completa) fica com o nível 2."""
+    if tid == "padrao" or MODO_DEMO:
+        return NIVEL_COMPLETO
+    nivel = db.buscar_preferencia(id_usuario, f"tema_{tid}_nivel")
+    if nivel in ("1", "2"):
+        return int(nivel)
+    if db.buscar_preferencia(id_usuario, f"tema_{tid}_liberado") == "true":
+        return NIVEL_COMPLETO
+    return 0
+
+
+def _temas_liberados(id_usuario):
+    """[TEMA] {tema: nível} só com os temas que a pessoa já pode usar."""
+    niveis = {tid: _nivel_tema(id_usuario, tid) for tid in TEMAS}
+    return {tid: n for tid, n in niveis.items() if n >= NIVEL_SIMPLES}
+
+
+def _liberar_tema(id_usuario, tid, nivel=NIVEL_COMPLETO):
+    """[TEMA] Sobe o tema para o nível pedido (nunca desce) e avisa pelo mascote.
+    Liberar a versão completa já inclui a simples."""
+    if not GAMIFICACAO_ATIVA or _nivel_tema(id_usuario, tid) >= nivel:
+        return
+    db.salvar_preferencia(id_usuario, f"tema_{tid}_nivel", str(nivel))
+    if nivel >= NIVEL_COMPLETO:   # a marca antiga "_liberado" sempre significou a versão completa: não grava na simples
+        db.salvar_preferencia(id_usuario, f"tema_{tid}_liberado", "true")
+    nome = TEMAS[tid]["nome"]
+    item = f"Tema {nome}" if nivel == NIVEL_SIMPLES else f"Tema {nome} completo, com o {TEMAS[tid]['mascote_nome']}"
+    _mascote_evento("conquista", item=item)
+
+
+def _tema_imersivo(id_usuario, tema):
+    """[TEMA] O tema ativo está na versão completa? (o padrão sempre está)"""
+    return _nivel_tema(id_usuario, tema) >= NIVEL_COMPLETO
+
+
+def _skin_atual(id_usuario):
+    """[TEMA] Mascote em uso: o do tema só na versão completa; na simples, continua o robô."""
+    tema = _tema_atual(id_usuario)
+    return TEMAS[tema]["mascote"] if _tema_imersivo(id_usuario, tema) else "robo"
+
+
+def _tema_atual(id_usuario):
+    """[TEMA] Tema escolhido, já validado: tema bloqueado ou inválido volta ao padrão."""
+    tema = db.buscar_preferencia(id_usuario, "tema_visual") or "padrao"
+    return tema if tema in _temas_liberados(id_usuario) else "padrao"
+
+
+def _chave_mascote(base, skin):
+    """[PERSONALIZAR] Cada mascote guarda a sua personalização. O robô mantém a chave antiga
+    (quem já tinha acessório equipado não perde nada); os outros ganham um sufixo."""
+    return base if skin == "robo" else f"{base}_{skin}"
+
+
+def _cor_do_mascote(id_usuario, skin):
+    cor_id = db.buscar_preferencia(id_usuario, _chave_mascote("mascote_cor", skin)) or "padrao"
+    return next((c for c in CORES_MASCOTE if c["id"] == cor_id), CORES_MASCOTE[0])
+
+
+def _interface_imersiva_liberada(id_usuario, pontos):
+    """[INTERFACE] A interface imersiva já foi liberada? Libera uma vez (100 pontos) e nunca volta a bloquear,
+    mesmo que os pontos caiam depois (por exemplo, ao desfazer uma tarefa)."""
+    if not GAMIFICACAO_ATIVA:
+        return False
+    if MODO_DEMO or db.buscar_preferencia(id_usuario, "interface_imersiva_liberada") == "true":
+        return True
+    if pontos >= PONTOS_INTERFACE_IMERSIVA:
+        db.salvar_preferencia(id_usuario, "interface_imersiva_liberada", "true")
+        _mascote_evento("conquista", item="Interface imersiva, com a rede da semana")
+        return True
+    return False
+
+
+def _interface_imersiva_disponivel(id_usuario, pontos=None):
+    """[INTERFACE] Disponível com 100 pontos OU porque o tema ativo é um tema de RECOMPENSA na versão completa
+    (a tela temática daquele tema faz parte da recompensa dele). O padrão nasce completo para todos,
+    então ele NÃO conta aqui: para o padrão, a imersiva só vem pelos pontos."""
+    pontos = db.calcular_pontos_mascote(id_usuario) if pontos is None else pontos
+    tema = _tema_atual(id_usuario)
+    return _interface_imersiva_liberada(id_usuario, pontos) or (tema != "padrao" and _tema_imersivo(id_usuario, tema))
+
+
+def _verificar_desbloqueio_cafeteria(id_usuario):
+    """[TEMA] Cafeteria (área Objetivos): versão simples com o primeiro objetivo;
+    versão completa quando algum objetivo tem pelo menos um fragmento."""
+    if not GAMIFICACAO_ATIVA or _nivel_tema(id_usuario, "cafeteria") >= NIVEL_COMPLETO:
+        return
+    objetivos = db.listar_objetivos(id_usuario)
+    if any(db.listar_fragmentos_objetivo(o["id_objetivo"], id_usuario) for o in objetivos):
+        _liberar_tema(id_usuario, "cafeteria", NIVEL_COMPLETO)
+    elif objetivos:
+        _liberar_tema(id_usuario, "cafeteria", NIVEL_SIMPLES)
+
+
+DIAS_ROTINA_PARA_PAPELARIA = 3      # versão simples: rotina cobrindo 3 dias da semana
+DIAS_ROTINA_MONTADA_COMPLETA = 7    # versão completa: rotina montada há 7 dias (o tempo faz o trabalho)
+
+
+def _verificar_desbloqueio_papelaria(id_usuario):
+    """[TEMA] Papelaria (área Rotina Fixa). A rotina não tem "concluir", ela se consolida com o tempo:
+    - simples: rotina com blocos em pelo menos 3 dias diferentes (marco de planejamento);
+    - completa: essa rotina montada há 7 dias. Não exige entrar no app todo dia e nunca zera."""
+    if not GAMIFICACAO_ATIVA or _nivel_tema(id_usuario, "papelaria") >= NIVEL_COMPLETO:
+        return
+    montada_em = db.buscar_preferencia(id_usuario, "rotina_montada_em")
+    if not montada_em:
+        dias = {r["dia_semana"] for r in db.listar_rotina(id_usuario)}
+        if len(dias) < DIAS_ROTINA_PARA_PAPELARIA:
+            return
+        montada_em = datetime.now().date().isoformat()
+        db.salvar_preferencia(id_usuario, "rotina_montada_em", montada_em)
+        _liberar_tema(id_usuario, "papelaria", NIVEL_SIMPLES)
+    try:
+        dias_montada = (datetime.now().date() - date.fromisoformat(montada_em)).days
+    except ValueError:
+        return
+    if dias_montada >= DIAS_ROTINA_MONTADA_COMPLETA:
+        _liberar_tema(id_usuario, "papelaria", NIVEL_COMPLETO)
+
+
 # ============================================================
-# ROTA INICIAL — manda pra tarefas se já estiver logado,
-# ou pra tela de login se não estiver
+# ROTA INICIAL
 # ============================================================
 @app.route("/")
 def inicio():
@@ -41,42 +413,289 @@ def inicio():
 @app.route("/login", methods=["GET", "POST"])
 def tela_login():
     if request.method == "GET":
-        return render_template("auth.html", aba="login", erro=None)
+        return render_template("login.html", erro=None)
 
-    email = request.form["email"]
-    senha = request.form["senha"]
-    usuario = db.verificar_login(email, senha)
+    inicio = time.perf_counter()
+    email = request.form.get("email", "").strip()[:254]
+    senha = request.form.get("senha", "")
 
+    if not email or not senha:
+        return render_template("login.html", erro="Preencha e-mail e senha.")
+
+    ip = request.remote_addr or "desconhecido"
+    chave_da_conta, chave_do_ip = seguranca.chave_conta(ip, email), f"ip:{ip}"
+    espera = max(LIMITE_LOGIN.espera(chave_da_conta), LIMITE_LOGIN_IP.espera(chave_do_ip))
+    if espera:   # bloqueado: nem consulta o banco nem confere a senha (vale mesmo que ela esteja certa)
+        minutos = max(1, math.ceil(espera / 60))
+        resposta = make_response(render_template("login.html", erro=f"Muitas tentativas seguidas. Aguarde {minutos} minuto(s) e tente de novo."), 429)
+        resposta.headers["Retry-After"] = str(espera)
+        return resposta
+
+    # o bcrypt só aceita até 72 bytes: acima disso não pode ser a senha de ninguém (e não deve virar erro 500)
+    usuario = db.verificar_login(email, senha) if len(senha.encode("utf-8")) <= seguranca.SENHA_MAX_BYTES else None
     if usuario:
+        LIMITE_LOGIN.limpar(chave_da_conta)   # acertou: zera os erros dessa conta (o contador do IP continua)
+        session.clear()   # não reaproveita sessão anterior
         session["id_usuario"] = usuario["id_usuario"]
         session["nome"] = usuario["nome"]
+        try:
+            db.apagar_eventos_antigos()
+        except Exception:
+            app.logger.exception("Falha na limpeza de retenção (não bloqueia o login)")
         return redirect(url_for("tarefas"))
 
-    return render_template("auth.html", aba="login", erro="E-mail ou senha errados.")
+    LIMITE_LOGIN.registrar_falha(chave_da_conta)
+    LIMITE_LOGIN_IP.registrar_falha(chave_do_ip)
+    sobra = LOGIN_ATRASO_MINIMO - (time.perf_counter() - inicio)
+    if sobra > 0:
+        time.sleep(sobra)   # e-mail inexistente (sem bcrypt) e senha errada (com bcrypt) passam a demorar parecido
+    return render_template("login.html", erro="E-mail ou senha errados.")
 
 
-@app.route("/cadastro", methods=["POST"])
-def cadastro():
-    nome = request.form["nome"]
-    email = request.form["email"]
-    senha = request.form["senha"]
-    faixa_etaria = request.form["faixa_etaria"]
-    ocupacao = request.form["ocupacao"]
-    turno = request.form.get("turno")
-    hobbies_texto = request.form.get("hobbies", "")
+def _ler_perfil(form):
+    """
+    Lê faixa etária, ocupação e turno do formulário. Retorna
+    (faixa_etaria, trabalha, estuda, turno, erro).
+
+    Ocupação aceita os dois jeitos: o campo 'ocupacao' (trabalha | estuda | ambos |
+    nenhum) ou as caixas independentes 'trabalha' e 'estuda' (dá para ser os dois).
+    """
+    faixa_etaria = form.get("faixa_etaria", "").strip()
+    turno = (form.get("turno") or "").strip() or None
+    ocupacao = form.get("ocupacao", "").strip()
+
+    trabalha = form.get("trabalha") in _VERDADEIRO
+    estuda = form.get("estuda") in _VERDADEIRO
+    if ocupacao in OCUPACOES_VALIDAS:
+        trabalha = trabalha or ocupacao in ("trabalha", "ambos")
+        estuda = estuda or ocupacao in ("estuda", "ambos")
+        informou_ocupacao = True
+    else:
+        informou_ocupacao = trabalha or estuda or form.get("nenhuma_ocupacao") in _VERDADEIRO
+
+    erro = None
+    if faixa_etaria not in FAIXAS_ETARIAS_VALIDAS:
+        erro = "Selecione sua faixa etária."
+    elif not informou_ocupacao:
+        erro = "Selecione sua ocupação."
+    elif turno is not None and turno not in TURNOS_VALIDOS:
+        erro = "Selecione um turno válido."
+    return faixa_etaria, trabalha, estuda, turno, erro
+
+
+@app.route("/cadastro/termos")
+def cadastro_termos():
+    return render_template("cadastro_termos.html")
+
+
+@app.route("/cadastro/conta", methods=["GET", "POST"])
+def cadastro_conta():
+    if request.method == "GET":
+        return render_template("cadastro_conta.html", erro=None)
+
+    email = request.form.get("email", "").strip()
+    senha = request.form.get("senha", "")
+    confirmar = request.form.get("confirmar", "")
+
+    erro = None
+    if not email or not senha:
+        erro = "Preencha e-mail e senha."
+    elif senha != confirmar:
+        erro = "As senhas não coincidem."
+    elif (problema_senha := seguranca.senha_valida(senha)):
+        erro = problema_senha
+    elif db.email_existe(email):
+        erro = "Já existe um usuário cadastrado com esse e-mail."
+
+    if erro:
+        return render_template("cadastro_conta.html", erro=erro)
+
+    # O cookie de sessão é só ASSINADO, não criptografado: quem o abre lê o conteúdo.
+    # Por isso guardamos o hash bcrypt, nunca a senha.
+    senha_hash = bcrypt.hashpw(senha.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    session["cadastro"] = {"email": email, "senha_hash": senha_hash}
+    return redirect(url_for("cadastro_nome"))
+
+
+@app.route("/cadastro/nome", methods=["GET", "POST"])
+def cadastro_nome():
+    if "cadastro" not in session:
+        return redirect(url_for("cadastro_conta"))
+
+    if request.method == "GET":
+        return render_template("cadastro_nome.html", erro=None)
+
+    nome = request.form.get("nome", "").strip()
+    if len(nome) < 2:
+        return render_template("cadastro_nome.html", erro="Digite um nome válido.")
+
+    session["cadastro"]["nome"] = nome
+    session.modified = True
+    return redirect(url_for("cadastro_perfil"))
+
+
+DIAS_ONBOARDING_PARA_DB = {
+    "seg": "segunda", "ter": "terca", "qua": "quarta", "qui": "quinta",
+    "sex": "sexta", "sab": "sabado", "dom": "domingo",
+}
+FAIXA_ETARIA_ONBOARDING_PARA_DB = {
+    "18_24": "18-24", "25_34": "25-34", "35_44": "35-44", "45_plus": "45+",
+}
+
+
+# [OBJETIVO v2] objetivos escritos no cadastro
+def _objetivos_do_onboarding(dados):
+    """Objetivos do cadastro: a pergunta "objetivo" ({titulo, detalhes, prazo, fragmentar} ou só texto) e/ou a lista "objetivos"
+    (textos ou dicionários). Limpa os textos, confere o prazo (de hoje até 10 anos) e fica com no máximo 5 válidos."""
+    brutos = []
+    if isinstance(dados.get("objetivo"), (str, dict)):
+        brutos.append(dados["objetivo"])
+    if isinstance(dados.get("objetivos"), list):
+        brutos.extend(dados["objetivos"])
+    hoje = date.today()
+    saida = []
+    for item in brutos[:50]:
+        if len(saida) == 5:
+            break
+        if isinstance(item, str):
+            item = {"titulo": item}
+        if not isinstance(item, dict):
+            continue
+        titulo = item.get("titulo")
+        titulo = " ".join(titulo.split())[:200] if isinstance(titulo, str) else ""
+        if not titulo:
+            continue
+        detalhes = item.get("detalhes", item.get("descricao"))
+        detalhes = detalhes.strip()[:500] if isinstance(detalhes, str) else ""
+        prazo = item.get("prazo")
+        try:
+            prazo = datetime.strptime(prazo, "%Y-%m-%d").date() if isinstance(prazo, str) else None
+        except ValueError:
+            prazo = None
+        if prazo and not (hoje <= prazo <= hoje + timedelta(days=3653)):
+            prazo = None
+        saida.append({"titulo": titulo, "descricao": detalhes or None, "prazo": prazo.isoformat() if prazo else None,
+                      "fragmentar": item.get("fragmentar") is True})
+    return saida
+
+
+def _criar_objetivo_do_cadastro(id_usuario, obj):
+    """Cria o objetivo. Se o banco desta versão não aceitar 'descricao', cria sem ela: o cadastro nunca quebra por isso."""
+    try:
+        return db.criar_objetivo(id_usuario, obj["titulo"], descricao=obj["descricao"], prazo=obj["prazo"])
+    except TypeError:
+        return db.criar_objetivo(id_usuario, obj["titulo"], prazo=obj["prazo"])
+
+
+@app.route("/cadastro/perfil", methods=["GET", "POST"])
+def cadastro_perfil():
+    dados_sessao = session.get("cadastro") or {}
+    if not all(chave in dados_sessao for chave in ("email", "senha_hash", "nome")):
+        return redirect(url_for("cadastro_conta"))
+
+    if request.method == "GET":
+        return render_template("onboarding.html")
+
+    dados = request.get_json(silent=True) or {}
+
+    # [LOTE1] confere a forma dos dados ANTES de criar a conta: um horário incompleto não pode deixar conta pela metade
+    if not isinstance(dados, dict):
+        return jsonify({"erro": "Dados inválidos. Atualize a página e tente de novo."}), 400
+    for chave in ("horario_trabalho_personalizado", "horario_trabalho_estimado", "horario_estudo"):
+        if dados.get(chave) and not _horario_valido(dados[chave]):
+            return jsonify({"erro": "Horário inválido. Volte e confira o início e o fim."}), 400
+    for chave in ("dias_trabalho", "dias_estudo", "hobbies", "areas_melhoria"):
+        if not _lista_de_textos(dados.get(chave)):
+            return jsonify({"erro": "Alguma resposta veio num formato inválido. Atualize a página e tente de novo."}), 400
+
+    faixa_etaria = FAIXA_ETARIA_ONBOARDING_PARA_DB.get(dados.get("idade"))
+    trabalha = dados.get("trabalha") == "sim"
+    estuda = dados.get("estuda") == "sim"
+    turno = dados.get("turno_trabalho") or None
+
+    if not faixa_etaria:
+        return jsonify({"erro": "Faixa etária inválida."}), 400
 
     try:
-        id_usuario = db.cadastrar_usuario(nome, email, senha, faixa_etaria, ocupacao, turno)
-        for hobby in hobbies_texto.split(","):
-            if hobby.strip():
-                db.associar_hobby(id_usuario, hobby)
+        id_usuario = db.cadastrar_usuario(
+            dados_sessao["nome"], dados_sessao["email"], None,
+            faixa_etaria, trabalha, estuda, turno,
+            senha_hash=dados_sessao["senha_hash"],
+        )
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 400
 
-        session["id_usuario"] = id_usuario
-        session["nome"] = nome
-        return redirect(url_for("tarefas"))
+    dias_trabalho = dados.get("dias_trabalho") or []
+    horario_trabalho = dados.get("horario_trabalho_personalizado") or dados.get("horario_trabalho_estimado")
+    if trabalha and dias_trabalho and horario_trabalho:
+        for dia in dias_trabalho:
+            dia_db = DIAS_ONBOARDING_PARA_DB.get(dia)
+            if dia_db:
+                db.adicionar_rotina(id_usuario, dia_db, "Trabalho", horario_trabalho["start"], horario_trabalho["end"])
 
-    except ValueError as erro:
-        return render_template("auth.html", aba="cadastro", erro=str(erro))
+    dias_estudo = dados.get("dias_estudo") or []
+    horario_estudo = dados.get("horario_estudo")
+    if estuda and dias_estudo and horario_estudo:
+        for dia in dias_estudo:
+            dia_db = DIAS_ONBOARDING_PARA_DB.get(dia)
+            if dia_db:
+                db.adicionar_rotina(id_usuario, dia_db, "Estudo", horario_estudo["start"], horario_estudo["end"])
+
+    id_para_fragmentar = None
+    for obj in _objetivos_do_onboarding(dados):
+        id_objetivo = _criar_objetivo_do_cadastro(id_usuario, obj)
+        if obj["fragmentar"] and id_para_fragmentar is None and id_objetivo:
+            id_para_fragmentar = id_objetivo
+
+    for hobby in (dados.get("hobbies") or []):
+        if hobby != "personalizado":
+            db.associar_hobby(id_usuario, hobby)
+    hobby_personalizado = dados.get("hobby_personalizado")
+    if hobby_personalizado:
+        db.associar_hobby(id_usuario, hobby_personalizado)
+
+    if dados.get("pico_energia") in {"manha", "tarde", "noite", "nao_sei"}:
+        db.salvar_padrao(id_usuario, "energia", dados["pico_energia"])
+    if dados.get("areas_melhoria"):
+        db.salvar_padrao(id_usuario, "areas_melhoria", ", ".join(dados["areas_melhoria"]))
+    if dados.get("tipo_estudo"):
+        db.salvar_preferencia(id_usuario, "tipo_estudo", dados["tipo_estudo"])
+    if dados.get("frequencia_hobbies"):
+        db.salvar_preferencia(id_usuario, "frequencia_hobbies", dados["frequencia_hobbies"])
+    if dados.get("sugestoes_hobbies"):
+        db.salvar_preferencia(id_usuario, "quer_sugestoes_hobbies", dados["sugestoes_hobbies"])
+
+    escolha_acess = dados.get("acessibilidade")
+    if escolha_acess == "fonte_grande":
+        db.salvar_preferencia(id_usuario, "acess_fonte", "grande")
+    elif escolha_acess == "alto_contraste":
+        db.salvar_preferencia(id_usuario, "acess_contraste", "alto")
+    elif escolha_acess == "dislexia":
+        db.salvar_preferencia(id_usuario, "acess_tipografia", "dislexia")
+
+    if dados.get("tempo_organizacao"):
+        db.salvar_padrao(id_usuario, "tempo_organizacao", dados["tempo_organizacao"])
+    if dados.get("tempo_neocortex"):
+        db.salvar_padrao(id_usuario, "tempo_neocortex", dados["tempo_neocortex"])
+    if dados.get("personalizacao"):
+        db.registrar_interacao(id_usuario, dados["personalizacao"], tipo="texto", contexto="cadastro_inicial")
+
+    session.pop("cadastro", None)
+    session["id_usuario"] = id_usuario
+    session["nome"] = dados_sessao["nome"]
+
+    if id_para_fragmentar:   # pediu ajuda para dividir o objetivo em passos: a tela de Objetivos abre a prévia depois do cadastro
+        session["abrir_fragmentacao"] = id_para_fragmentar
+
+    return jsonify({"redirect": url_for("cadastro_sucesso")})
+
+
+@app.route("/cadastro/sucesso")
+@login_obrigatorio
+def cadastro_sucesso():
+    pedido = session.get("abrir_fragmentacao")   # quem pediu ajuda com os passos do objetivo segue para a prévia
+    proximo = url_for("objetivos", fragmentar=pedido) if pedido else url_for("tarefas")
+    return render_template("cadastro_sucesso.html", proximo=proximo)
 
 
 @app.route("/logout")
@@ -88,71 +707,1404 @@ def logout():
 # ============================================================
 # TAREFAS
 # ============================================================
-@app.route("/tarefas")
-def tarefas():
-    if not usuario_logado():
-        return redirect(url_for("tela_login"))
+def tarefas_filtradas(id_usuario, filtro, categoria=None):
+    """'hoje' | 'proximas' | qualquer outro valor = todas. 'hoje' inclui as tarefas que começaram antes e ainda estão ativas
+    (atravessam a meia-noite), como na Agenda. categoria: uma das categorias da tela, ou None/'todas'."""
+    hoje = datetime.combine(datetime.now().date(), datetime.min.time())
+    if filtro == "hoje":
+        do_dia = db.listar_tarefas(id_usuario, data_inicio=hoje, inicio_antes=hoje + timedelta(days=1))
+        anteriores = [t for t in db.listar_tarefas(id_usuario, data_inicio=hoje - timedelta(days=7), inicio_antes=hoje)
+                      if t.get("data_fim") and t["data_fim"] > hoje]
+        lista = sorted(list(anteriores) + list(do_dia), key=lambda t: t["data_inicio"])
+    elif filtro == "proximas":
+        lista = db.listar_tarefas(id_usuario, data_inicio=hoje + timedelta(days=1))
+    else:
+        lista = db.listar_tarefas(id_usuario)
+    if categoria and categoria != "todas":
+        lista = [t for t in lista if t.get("categoria") == categoria]
+    return lista
 
-    lista_tarefas = db.listar_tarefas(usuario_logado())
+
+def _cronometro_ativo():
+    """[CRONOMETRO-DISCRETO] Opcional: a pessoa pode desligar os botões 'Começar' em Configurações. Ligado por padrão."""
+    try:
+        return db.buscar_preferencia(usuario_logado(), "cronometro_ativo") != "false"
+    except Exception:
+        return True
+
+
+def _anexar_cronometro(tarefas):
+    """
+    [CRONOMETRO] Acrescenta a cada tarefa o estado do cronômetro opcional (só quem está em andamento precisa de consulta),
+    se vale oferecer 'Começar' e QUAL tarefa recebe o botão em destaque.
+    [CRONOMETRO-DISCRETO] Para a tela não ficar poluída: só a PRÓXIMA tarefa (a que está valendo agora ou vem em seguida) ganha a
+    pílula 'Começar'; as outras ganham só o ícone ▶; e com um cronômetro rodando ninguém ganha pílula. Quem desligou o cronômetro
+    em Configurações não vê 'Começar' (o que já está em andamento continua podendo pausar e concluir).
+    Nunca derruba a tela de Tarefas.
+    """
+    agora_local = datetime.now()
+    hoje = agora_local.date()
+    ativo = _cronometro_ativo()
+    agora = None
+    ha_rodando = False
+    for t in tarefas:
+        t["cronometro"] = None
+        t["comecar_destaque"] = False
+        t["pode_comecar"] = ativo and t["status"] == "pendente" and t["data_inicio"].date() <= hoje
+        if t["status"] == "em_andamento":
+            try:
+                agora = agora or servicos.hora_do_cronometro()
+                estado = servicos.estado_do_cronometro(usuario_logado(), t["id_tarefa"], agora)
+                t["cronometro"] = {**estado, "rotulo": cronometro.rotulo_tempo(estado["acumulado_s"])}
+                ha_rodando = ha_rodando or estado["estado"] == "rodando"
+            except Exception:
+                t["cronometro"] = None
+    if not ha_rodando:
+        proximas = [t for t in tarefas if t["pode_comecar"] and t.get("data_fim") and t["data_fim"] >= agora_local]
+        if proximas:
+            min(proximas, key=lambda t: t["data_inicio"])["comecar_destaque"] = True
+    return tarefas
+
+
+def _render_tarefas(filtro="hoje", categoria_filtro="todas", **extra):
     return render_template(
         "tarefas.html",
-        tarefas=lista_tarefas,
-        pagina="tarefas",
-        titulo_pagina="Tarefas",
-        inicial_usuario=session.get("nome", "?")[0].upper(),
+        tarefas=_anexar_cronometro(tarefas_filtradas(usuario_logado(), filtro, categoria_filtro)),
+        aviso_cronometro=session.pop("cronometro_aviso", None),   # [CRONOMETRO]
+        filtro=filtro,
+        categoria_filtro=categoria_filtro,
+        n_atrasadas=_contar_atrasadas_para_reorganizar(),   # [REORGANIZAR]
+        **_pagina("tarefas", "Tarefas", **extra),
     )
+
+
+def _montar_datetime(data, hora, minuto):
+    """'2026-10-08', '9', '5' -> '2026-10-08T09:05'. None se algo faltar ou for inválido."""
+    try:
+        return f"{data}T{int(hora):02d}:{int(minuto):02d}" if data else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _ler_formulario_tarefa():
+    """Campos comuns de criar/editar tarefa. Retorna um dict com 'erro' preenchido se algo estiver errado."""
+    f = request.form
+    dados = {
+        "titulo": f.get("titulo", "").strip(),
+        "categoria": f.get("categoria") or None,
+        "inicio": _montar_datetime(f.get("data_inicio_data", ""), f.get("data_inicio_h", ""), f.get("data_inicio_m", "")),
+        "fim": _montar_datetime(f.get("data_fim_data", ""), f.get("data_fim_h", ""), f.get("data_fim_m", "")),
+        "erro": None,
+    }
+    if not dados["titulo"] or not f.get("data_inicio_data") or not f.get("data_fim_data"):
+        dados["erro"] = "Preencha título, início e fim da tarefa."
+    elif not dados["inicio"] or not dados["fim"]:
+        dados["erro"] = "Data ou horário inválido."
+    return dados
+
+
+def _resposta_de_tarefa(resultado, formulario):
+    """
+    Traduz o retorno de um serviço de tarefa: None se deu certo; senão, a tela de
+    tarefas de novo com o motivo. Em conflito, devolve também os dados digitados e
+    'exige_confirmacao', para o template oferecer "salvar mesmo assim"
+    (reenviar o formulário com confirmar_conflito=1).
+    """
+    if resultado.get("nao_encontrada"):
+        abort(404)
+    if resultado.get("sucesso") or resultado.get("sem_mudanca"):
+        return None
+    if resultado.get("conflitos"):
+        return _render_tarefas(
+            erro="Há conflito com: " + servicos.descrever_conflitos(resultado["conflitos"]) + ".",
+            conflitos=resultado["conflitos"], formulario=formulario, exige_confirmacao=True,
+        )
+    return _render_tarefas(erro=resultado.get("erro") or "Não foi possível salvar a tarefa.", formulario=formulario)
+
+
+@app.route("/tarefas")
+@login_obrigatorio
+def tarefas():
+    categoria = request.args.get("categoria", "todas")
+    if categoria not in ("todas", "trabalho", "estudo", "hobby", "pessoal", "saude", "outro"):
+        categoria = "todas"
+    return _render_tarefas(request.args.get("filtro", "hoje"), categoria_filtro=categoria)
+
+
+# ============================================================
+# REORGANIZAR ATRASADAS  [REORGANIZAR]
+# O que ficou para trás ganha novos horários livres, escolhidos com o que o sistema aprendeu (período em que a pessoa rende,
+# por categoria, folga pelo atraso). Sempre com PRÉVIA editável e conferência de conflito; nada muda sem confirmar.
+# ============================================================
+REORG_MAX_TAREFAS = 12
+REORG_JANELA_ATRASO_DIAS = 14     # só olha o que atrasou nas últimas 2 semanas
+REORG_DIAS_A_FRENTE = 14          # procura horário livre nas próximas 2 semanas
+REORG_DIAS_PARA_MELHORAR = 2      # [LOTE-4] se o 1º horário livre cai num período pior, olha até 2 dias à frente por um melhor
+REORG_GANHO_MIN_PONTOS = 0.5      # [LOTE-4] ...mas só espera por um horário que valha pelo menos isto a mais na pontuação
+_REORG_CATEGORIAS = ("estudo", "trabalho", "hobby", "pessoal", "saude")
+
+
+def _atrasadas_para_reorganizar(id_usuario, agora):
+    """Tarefas abertas com o prazo vencido (sem dependência pendente), mais prioritárias e mais antigas primeiro."""
+    abertas = db.listar_tarefas_abertas(id_usuario, data_fim_minima=agora - timedelta(days=REORG_JANELA_ATRASO_DIAS))
+    abertas = db.enriquecer_tarefas(id_usuario, abertas)
+    atrasadas = [t for t in abertas if t["data_fim"] < agora and not t.get("dependencia_pendente")]
+    prioridade = {"alta": 0, "media": 1, "baixa": 2}
+    atrasadas.sort(key=lambda t: (prioridade.get(t.get("prioridade"), 1), t["data_fim"]))
+    return atrasadas
+
+
+def _contar_atrasadas_para_reorganizar():
+    """Quantas atrasadas podem ser reorganizadas (decide se o botão aparece). Nunca derruba a tela de Tarefas."""
+    try:
+        return len(_atrasadas_para_reorganizar(usuario_logado(), datetime.now()))
+    except Exception:
+        return 0
+
+
+@app.route("/tarefas/reorganizar/previa", methods=["POST"])
+@login_obrigatorio
+def reorganizar_previa():
+    agora = datetime.now()
+    atrasadas = _atrasadas_para_reorganizar(usuario_logado(), agora)
+    if not atrasadas:
+        return jsonify(erro="Você não tem tarefas atrasadas para reorganizar."), 409
+    propostas, sem_horario, reservas = [], [], []
+    for t in atrasadas[:REORG_MAX_TAREFAS]:
+        duracao_min = int(min(max((t["data_fim"] - t["data_inicio"]).total_seconds() // 60, 15), 480))
+        categoria = t.get("categoria") if t.get("categoria") in _REORG_CATEGORIAS else None
+        limite = t["objetivo_prazo"].date() if t.get("objetivo_prazo") else None     # passo de objetivo não passa do prazo dele
+        achou, primeiro_dia = None, None
+        for desloc in range(0, REORG_DIAS_A_FRENTE + 1):
+            dia = agora.date() + timedelta(days=desloc)
+            if limite and dia > limite:
+                break
+            if primeiro_dia is not None and desloc - primeiro_dia > REORG_DIAS_PARA_MELHORAR:
+                break
+            r = decisao.sugerir_horarios(usuario_logado(), dia, duracao_min, agora, max_sugestoes=1, categoria=categoria, reservas=reservas, incluir_pontos=True)
+            if r["sugestoes"]:
+                s = r["sugestoes"][0]
+                if primeiro_dia is None:
+                    primeiro_dia, achou = desloc, s
+                elif s.get("pontos", 0) >= achou.get("pontos", 0) + REORG_GANHO_MIN_PONTOS:   # só espera por um horário claramente melhor
+                    achou = s
+        if not achou:
+            sem_horario.append({"id_tarefa": t["id_tarefa"], "titulo": t["titulo"]})
+            continue
+        inicio, fim = datetime.fromisoformat(achou["inicio"]), datetime.fromisoformat(achou["fim"])
+        reservas.append((inicio - timedelta(minutes=achou.get("preparo_min", 0)), fim + timedelta(minutes=achou.get("folga_min", 0))))     # a próxima proposta não disputa este horário
+        propostas.append({
+            "id_tarefa": t["id_tarefa"], "titulo": t["titulo"], "categoria": t.get("categoria"), "duracao_min": duracao_min,
+            "de": {"inicio": t["data_inicio"].isoformat(timespec="minutes"), "fim": t["data_fim"].isoformat(timespec="minutes")},
+            "inicio": achou["inicio"], "fim": achou["fim"], "motivo": achou["base"],
+        })
+    if not propostas:
+        return jsonify(erro=f"Não encontrei horário livre nos próximos {REORG_DIAS_A_FRENTE} dias para as tarefas atrasadas."), 409
+    return jsonify(propostas=propostas, sem_horario=sem_horario, total_atrasadas=len(atrasadas))
+
+
+def _conflitos_da_reorganizacao(id_usuario, itens):
+    """Conflito de cada novo horário com a agenda (ignorando a própria tarefa) e dos itens entre si."""
+    saida = []
+    for i, p in enumerate(itens):
+        achados = list(agenda.conflitos_para(id_usuario, p["inicio"], p["fim"], categoria=p["categoria"], ignorar_id_tarefa=p["id_tarefa"]))
+        for j, q in enumerate(itens):
+            if j != i and p["inicio"] < q["fim"] and q["inicio"] < p["fim"]:
+                achados.append({"tipo": "tarefa", "titulo": q["titulo"], "inicio": q["inicio"].isoformat(timespec="minutes"),
+                                "fim": q["fim"].isoformat(timespec="minutes")})
+        if achados:
+            saida.append({"indice": i, "titulo": p["titulo"], "inicio": p["inicio"].isoformat(timespec="minutes"),
+                          "fim": p["fim"].isoformat(timespec="minutes"), "conflitos": achados})
+    return saida
+
+
+@app.route("/tarefas/reorganizar/confirmar", methods=["POST"])
+@login_obrigatorio
+def reorganizar_confirmar():
+    dados = request.get_json(silent=True) or {}
+    itens = dados.get("itens")
+    if not isinstance(itens, list) or not 1 <= len(itens) <= REORG_MAX_TAREFAS:
+        return jsonify(erro="Nada para reorganizar."), 400
+    agora, validados, vistos = datetime.now(), [], set()
+    for it in itens:
+        try:
+            id_tarefa = int(it["id_tarefa"])
+            inicio = datetime.fromisoformat(str(it["inicio"]))
+        except (KeyError, TypeError, ValueError):
+            return jsonify(erro="Um dos itens está com tarefa ou horário inválido."), 400
+        if id_tarefa in vistos:
+            return jsonify(erro="A mesma tarefa aparece mais de uma vez."), 400
+        vistos.add(id_tarefa)
+        if not agora - timedelta(days=1) <= inicio <= agora + timedelta(days=365):
+            return jsonify(erro="Um dos horários está fora do intervalo permitido (de hoje até 1 ano à frente)."), 400
+        tarefa = db.buscar_tarefa(id_tarefa, usuario_logado())
+        if not tarefa or tarefa["status"] not in ("pendente", "em_andamento"):
+            return jsonify(erro="Uma das tarefas não está mais aberta. Reabra a janela para ver a lista atual."), 409
+        fim = inicio + (tarefa["data_fim"] - tarefa["data_inicio"])        # a duração é a da própria tarefa, nunca a do navegador
+        validados.append({"id_tarefa": id_tarefa, "titulo": tarefa["titulo"], "categoria": tarefa.get("categoria"), "inicio": inicio, "fim": fim})
+    conflitos = _conflitos_da_reorganizacao(usuario_logado(), validados)
+    if conflitos and not _confirmou_conflito_passos(dados.get("confirmar_conflito")):
+        linhas = []
+        for c in conflitos:
+            quando = datetime.fromisoformat(c["inicio"])
+            linhas.append(f"Tarefa {c['indice'] + 1} ({quando:%d/%m %H:%M}): " + servicos.descrever_conflitos(c["conflitos"]))
+        return jsonify(erro="Há conflito de horário:\n" + "\n".join(linhas), conflitos=conflitos, exige_confirmacao=True), 409
+    feitas = 0
+    for v in validados:
+        resultado = servicos.atualizar_tarefa(
+            usuario_logado(), v["id_tarefa"],
+            data_inicio=v["inicio"].isoformat(timespec="minutes"), data_fim=v["fim"].isoformat(timespec="minutes"), confirmar_conflito=True,
+        )
+        if resultado.get("sucesso"):
+            feitas += 1
+    if feitas:
+        _mascote_evento("tarefa_replanejada")   # [MASCOTE] reorganizar o que atrasou é ajuste, não é culpa
+        _liberar_tema(usuario_logado(), "campeonato")   # [TEMA]
+    return jsonify(ok=True, reorganizadas=feitas, falharam=len(validados) - feitas, redirect=url_for("tarefas"))
 
 
 @app.route("/tarefas/nova", methods=["POST"])
+@login_obrigatorio
 def criar_tarefa():
-    if not usuario_logado():
-        return redirect(url_for("tela_login"))
+    dados = _ler_formulario_tarefa()
+    if dados["erro"]:
+        return _render_tarefas(erro=dados["erro"], formulario=dados)
+    try:
+        resultado = servicos.criar_tarefa(
+            usuario_logado(), dados["titulo"], dados["inicio"], dados["fim"],
+            categoria=dados["categoria"], origem="manual", confirmar_conflito=_confirmou_conflito(),
+        )
+    except ValueError as erro:
+        return _render_tarefas(erro=str(erro), formulario=dados)
+    resposta = _resposta_de_tarefa(resultado, dados)
+    if resposta:
+        return resposta
+    _mascote_evento("tarefa_criada")   # [MASCOTE]
+    return redirect(url_for("tarefas"))
 
-    db.criar_tarefa(
-        usuario_logado(),
-        titulo=request.form["titulo"],
-        data_inicio=request.form["data_inicio"],
-        data_fim=request.form["data_fim"],
-        categoria=request.form.get("categoria"),
-    )
+
+@app.route("/tarefas/<int:id_tarefa>/editar", methods=["POST"])
+@login_obrigatorio
+def editar_tarefa(id_tarefa):
+    dados = _ler_formulario_tarefa()
+    if dados["erro"]:
+        return _render_tarefas(erro=dados["erro"], formulario=dados)
+
+    # [MASCOTE] guarda o estado antes, pra reconhecer quando uma tarefa atrasada foi remarcada
+    agora = datetime.now()
+    antes = next((t for t in db.listar_tarefas(usuario_logado()) if t["id_tarefa"] == id_tarefa), None)
+    estava_atrasada = bool(antes and antes["status"] in ("pendente", "em_andamento") and antes["data_fim"] < agora)
+
+    try:
+        resultado = servicos.atualizar_tarefa(
+            usuario_logado(), id_tarefa, titulo=dados["titulo"], categoria=dados["categoria"],
+            data_inicio=dados["inicio"], data_fim=dados["fim"], confirmar_conflito=_confirmou_conflito(),
+        )
+    except ValueError as erro:
+        return _render_tarefas(erro=str(erro), formulario=dados)
+    resposta = _resposta_de_tarefa(resultado, dados)
+    if resposta:
+        return resposta
+
+    # [MASCOTE] remarcar uma atrasada pra frente conta como replanejar (não é culpa, é ajuste)
+    if estava_atrasada and datetime.fromisoformat(dados["fim"]) > agora:
+        _mascote_evento("tarefa_replanejada")
+        _liberar_tema(usuario_logado(), "campeonato")   # [TEMA]
     return redirect(url_for("tarefas"))
 
 
 @app.route("/tarefas/<int:id_tarefa>/concluir", methods=["POST"])
+@login_obrigatorio
 def concluir_tarefa(id_tarefa):
-    if not usuario_logado():
-        return redirect(url_for("tela_login"))
+    resultado = servicos.concluir_tarefa(usuario_logado(), id_tarefa)
+    if resultado.get("nao_encontrada"):
+        abort(404)
 
-    db.marcar_tarefa_concluida(id_tarefa)
+    cron = resultado.get("cronometro")      # [CRONOMETRO] mostra o tempo real e o incentivo, sem julgar
+    if cron and not resultado.get("erro"):
+        session["cronometro_aviso"] = {"titulo": resultado.get("titulo"), "real_min": max(1, round(cron["real_s"] / 60)),
+                                       "previsto_min": cron["previsto_min"], "pontos": cron["pontos"] if GAMIFICACAO_ATIVA else 0}
+
+    # [MASCOTE] se era a última de hoje, a comemoração é de "dia concluído"
+    if not resultado.get("erro"):
+        hoje = [t for t in tarefas_filtradas(usuario_logado(), "hoje") if t["status"] != "cancelada"]
+        era_de_hoje = any(t["id_tarefa"] == id_tarefa for t in hoje)
+        if era_de_hoje and all(t["status"] == "concluida" for t in hoje):
+            _mascote_evento("dia_concluido")
+            _liberar_tema(usuario_logado(), "campeonato", NIVEL_SIMPLES)   # [TEMA] versão simples
+        else:
+            _mascote_evento("tarefa_concluida")
+    return redirect(request.referrer or url_for("tarefas"))
+
+
+@app.route("/tarefas/<int:id_tarefa>/cronometro/<acao>", methods=["POST"])
+@login_obrigatorio
+def cronometro_tarefa(id_tarefa, acao):
+    """[CRONOMETRO] Opcional: começar, pausar ou retomar o cronômetro de uma tarefa."""
+    funcao = {"iniciar": "iniciar_tarefa", "pausar": "pausar_tarefa", "retomar": "retomar_tarefa"}.get(acao)
+    if funcao is None:
+        abort(404)
+    resultado = getattr(servicos, funcao)(usuario_logado(), id_tarefa)
+    if resultado.get("nao_encontrada"):
+        abort(404)
+    if resultado.get("erro"):
+        session["cronometro_aviso"] = {"erro": resultado["erro"]}
+    elif resultado.get("pausadas"):
+        session["cronometro_aviso"] = {"info": "Pausei " + ", ".join(resultado["pausadas"]) + " para você começar esta."}
+    return redirect(request.referrer or url_for("tarefas"))
+
+
+@app.route("/tarefas/<int:id_tarefa>/desfazer", methods=["POST"])
+@login_obrigatorio
+def desfazer_tarefa(id_tarefa):
+    resultado = servicos.desfazer_conclusao(usuario_logado(), id_tarefa)
+    if resultado.get("nao_encontrada"):
+        abort(404)
+    return redirect(request.referrer or url_for("tarefas"))
+
+
+@app.route("/tarefas/<int:id_tarefa>/cancelar", methods=["POST"])
+@login_obrigatorio
+def cancelar_tarefa_rota(id_tarefa):
+    resultado = servicos.cancelar_tarefa(usuario_logado(), id_tarefa)
+    if resultado.get("nao_encontrada"):
+        abort(404)
+    return redirect(request.referrer or url_for("tarefas"))
+
+
+@app.route("/tarefas/<int:id_tarefa>/excluir", methods=["POST"])
+@login_obrigatorio
+def excluir_tarefa(id_tarefa):
+    resultado = servicos.excluir_tarefa(usuario_logado(), id_tarefa)
+    if resultado.get("nao_encontrada"):
+        abort(404)
     return redirect(url_for("tarefas"))
+
+
+@app.route("/tarefas/<int:id_tarefa>/reativar", methods=["POST"])
+@login_obrigatorio
+def reativar_tarefa_rota(id_tarefa):
+    resultado = servicos.reativar_tarefa(usuario_logado(), id_tarefa)
+    if resultado.get("nao_encontrada"):
+        abort(404)
+    return redirect(request.referrer or url_for("tarefas"))
+
+
+# ============================================================
+# ROTINA FIXA
+# ============================================================
+def agrupar_rotina(lista_rotina):
+    grupos = {}
+    for r in lista_rotina:
+        chave = (r["descricao"], r["hora_inicio"], r["hora_fim"])
+        grupos.setdefault(chave, {
+            "descricao": r["descricao"], "hora_inicio": r["hora_inicio"],
+            "hora_fim": r["hora_fim"], "dias": [], "ids": [],
+        })
+        grupos[chave]["dias"].append(r["dia_semana"])
+        grupos[chave]["ids"].append(r["id_rotina"])
+
+    resultado = []
+    for g in grupos.values():
+        dias_ordenados = sorted(g["dias"], key=lambda d: DIAS_SEMANA_ORDEM.index(d))
+        g["dias_label"] = ", ".join(DIAS_SEMANA_LABEL[d] for d in dias_ordenados)
+        resultado.append(g)
+    return resultado
+
+
+def _render_rotina(**extra):
+    return render_template(
+        "rotina.html",
+        rotina=agrupar_rotina(db.listar_rotina(usuario_logado())),
+        **_pagina("rotina", "Rotina Fixa", **extra),
+    )
+
+
+@app.route("/rotina")
+@login_obrigatorio
+def rotina():
+    return _render_rotina()
+
+
+@app.route("/rotina/nova", methods=["POST"])
+@login_obrigatorio
+def adicionar_rotina_rota():
+    dias_semana = request.form.getlist("dia_semana")
+    descricao = request.form.get("descricao", "").strip()
+    hora_inicio = f"{request.form.get('hora_inicio_h', '')}:{request.form.get('hora_inicio_m', '')}"
+    hora_fim = f"{request.form.get('hora_fim_h', '')}:{request.form.get('hora_fim_m', '')}"
+
+    dias_invalidos = [d for d in dias_semana if d not in DIAS_SEMANA_VALIDOS]
+    if not dias_semana or dias_invalidos:
+        return _render_rotina(erro="Selecione ao menos um dia da semana válido.")
+    if not descricao:
+        return _render_rotina(erro="Preencha a descrição.")
+
+    try:
+        servicos.configurar_rotina(usuario_logado(), descricao, hora_inicio, hora_fim, dias_semana)
+    except ValueError as erro:
+        return _render_rotina(erro=str(erro))
+    _verificar_desbloqueio_papelaria(usuario_logado())   # [TEMA]
+    return redirect(url_for("rotina"))
+
+
+@app.route("/rotina/grupo/excluir", methods=["POST"])
+@login_obrigatorio
+def excluir_grupo_rotina():
+    for id_str in request.form.getlist("id_rotina"):
+        try:
+            db.deletar_rotina(int(id_str), usuario_logado())
+        except ValueError:
+            continue
+    return redirect(url_for("rotina"))
 
 
 # ============================================================
 # DASHBOARD
 # ============================================================
 @app.route("/dashboard")
+@login_obrigatorio
 def dashboard():
-    if not usuario_logado():
-        return redirect(url_for("tela_login"))
+    hoje = datetime.now().date()
+    hoje_formatado = f"{DIAS_SEMANA_PT[hoje.weekday()]}, {hoje.day} de {MESES_PT[hoje.month - 1].lower()}"
 
-    lista_tarefas = db.listar_tarefas(usuario_logado())
-    df = pd.DataFrame(lista_tarefas)
+    # canceladas não contam: a tarefa deixou de existir para o usuário
+    tarefas_hoje = [t for t in tarefas_filtradas(usuario_logado(), "hoje") if t["status"] != "cancelada"]
+    total = len(tarefas_hoje)
+    concluidas = len([t for t in tarefas_hoje if t["status"] == "concluida"])
+    pct = round((concluidas / total) * 100) if total else 0
 
-    grafico_html = None
-    if not df.empty:
-        contagem = df["status"].value_counts().reset_index()
-        contagem.columns = ["status", "quantidade"]
-        fig = px.bar(contagem, x="status", y="quantidade", title="Tarefas por status")
-        grafico_html = fig.to_html(full_html=False, include_plotlyjs="cdn")
+    # [TEMA] resumo dos 7 dias (segunda a domingo) para a prateleira / escalação da tela inicial.
+    # Só conta concluídas de planejadas: o visual nunca desenha tarefa por tarefa.
+    segunda = datetime.combine(hoje - timedelta(days=hoje.weekday()), datetime.min.time())
+    semana_dias = [{"data": (segunda + timedelta(days=i)).date().isoformat(), "total": 0, "concluidas": 0} for i in range(7)]
+    por_data = {d["data"]: d for d in semana_dias}
+    for t in db.listar_tarefas(usuario_logado(), data_inicio=segunda, inicio_antes=segunda + timedelta(days=7)):
+        dia = por_data.get(t["data_inicio"].date().isoformat())
+        if dia and t["status"] != "cancelada":
+            dia["total"] += 1
+            dia["concluidas"] += t["status"] == "concluida"
+
+    hora = datetime.now().hour
+    saudacao = "Bom dia" if 5 <= hora < 12 else ("Boa tarde" if hora < 18 else "Boa noite")
 
     return render_template(
         "dashboard.html",
-        grafico_html=grafico_html,
-        pagina="dashboard",
-        titulo_pagina="Dashboard",
-        inicial_usuario=session.get("nome", "?")[0].upper(),
+        tarefas=tarefas_hoje,
+        total=total, concluidas=concluidas, pct=pct,
+        hoje_formatado=hoje_formatado,
+        semana_dias=semana_dias,                      # [TEMA]
+        saudacao=saudacao,                            # [TEMA]
+        primeiro_nome=(session.get("nome") or "").split(" ")[0],
+        **_pagina("dashboard", f"Olá, {session.get('nome', '?')} 👋"),
     )
 
 
+# =============================================================
+# OBJETIVOS
+# =============================================================
+
+def _render_objetivos(conflito_passo=None):   # [CONFLITO-PASSOS] a tela também serve ao aviso de conflito do passo manual
+    lista = db.listar_objetivos(usuario_logado())
+    fragmentos = {o["id_objetivo"]: db.listar_fragmentos_objetivo(o["id_objetivo"], usuario_logado()) for o in lista}
+    # [ONBOARDING] pediu ajuda para dividir o objetivo em passos: abre a prévia uma vez (só se o objetivo é dela e ainda não tem passos)
+    pedido = request.args.get("fragmentar", type=int) or session.get("abrir_fragmentacao")
+    session.pop("abrir_fragmentacao", None)
+    abrir = next((o for o in lista if o["id_objetivo"] == pedido and not fragmentos[o["id_objetivo"]]), None) if pedido else None
+    return render_template(
+        "objetivos.html",
+        objetivos=lista,
+        db_fragmentos=fragmentos,
+        abrir_fragmentacao=abrir,
+        conflito_passo=conflito_passo,
+        **_pagina("objetivos", "Objetivos"),
+    )
+
+
+@app.route("/objetivos")
+def objetivos():
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+    return _render_objetivos()
+
+
+@app.route("/objetivos/novo", methods=["POST"])
+def criar_objetivo_rota():
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+    titulo = request.form.get("titulo", "").strip()[:200]
+    try:
+        prazo = _prazo_iso(request.form.get("prazo"))
+    except ValueError:
+        abort(400)   # data inválida: só chega assim por envio manual (o campo de data do navegador não deixa)
+    if titulo:
+        db.criar_objetivo(usuario_logado(), titulo, prazo=prazo)
+        _mascote_evento("objetivo_criado", objetivo=titulo)   # [MASCOTE]
+        _verificar_desbloqueio_cafeteria(usuario_logado())    # [TEMA] versão simples
+    return redirect(url_for("objetivos"))
+
+
+@app.route("/objetivos/<int:id_objetivo>/concluir", methods=["POST"])
+def concluir_objetivo_rota(id_objetivo):
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+    objetivo = db.buscar_objetivo(id_objetivo, usuario_logado())   # [MASCOTE] pra citar o título
+    db.atualizar_objetivo(id_objetivo, usuario_logado(), status="concluido")
+    if objetivo:
+        _mascote_evento("objetivo_concluido", objetivo=objetivo["titulo"])   # [MASCOTE]
+    return redirect(url_for("objetivos"))
+
+
+@app.route("/objetivos/<int:id_objetivo>/excluir", methods=["POST"])
+def excluir_objetivo_rota(id_objetivo):
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+    db.excluir_objetivo(id_objetivo, usuario_logado())
+    return redirect(url_for("objetivos"))
+
+
+@app.route("/objetivos/<int:id_objetivo>/desfazer", methods=["POST"])
+def desfazer_objetivo_rota(id_objetivo):
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+    db.atualizar_objetivo(id_objetivo, usuario_logado(), status="em_andamento")
+    return redirect(url_for("objetivos"))
+
+
+@app.route("/objetivos/<int:id_objetivo>/editar", methods=["POST"])
+def editar_objetivo_rota(id_objetivo):
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+    titulo = request.form.get("titulo", "").strip()[:200]
+    try:
+        prazo = _prazo_iso(request.form.get("prazo"))
+    except ValueError:
+        abort(400)   # data inválida: só chega assim por envio manual (o campo de data do navegador não deixa)
+    if titulo:
+        db.atualizar_objetivo(id_objetivo, usuario_logado(), titulo=titulo, prazo=prazo)
+    return redirect(url_for("objetivos"))
+
+
+@app.route("/objetivos/<int:id_objetivo>/fragmentos", methods=["POST"])
+def criar_fragmento_rota(id_objetivo):
+    if not usuario_logado():
+        return redirect(url_for("tela_login"))
+    titulo = " ".join(request.form.get("titulo", "").split())[:200]
+    data = request.form.get("data", "")
+    hora = request.form.get("hora") or "09:00"
+    if not titulo or not data:
+        return redirect(url_for("objetivos"))
+    try:
+        inicio = datetime.strptime(f"{data} {hora}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        abort(400)   # data ou hora inválida: só chega assim por envio manual (os campos do navegador não deixam)
+    if not db.buscar_objetivo(id_objetivo, usuario_logado()):
+        abort(404)   # objetivo de outra pessoa (ou que não existe): não cria nada e não conta ponto
+    passo = {"titulo": titulo, "inicio": inicio, "fim": inicio + timedelta(minutes=30)}
+    conflitos = servicos.conflitos_de_passos(usuario_logado(), [passo])   # [CONFLITO-PASSOS]
+    if conflitos and not _confirmou_conflito_passos(request.form.get("confirmar_conflito")):
+        return _render_objetivos(conflito_passo={
+            "id_objetivo": id_objetivo, "titulo": titulo, "data": data, "hora": hora, "data_br": inicio.strftime("%d/%m/%Y"),
+            "texto": servicos.descrever_conflitos(conflitos[0]["conflitos"]),
+        })
+    db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, passo["titulo"], passo["inicio"], passo["fim"])
+    _mascote_evento("tarefa_criada")   # [MASCOTE]
+    _verificar_desbloqueio_cafeteria(usuario_logado())   # [TEMA]
+    return redirect(url_for("objetivos"))
+
+
+# [LOTE1] validações e planejamento de passos (itens 32, 48, 49, 50, 53 e 72 do relatório)
+def _horario_valido(valor):
+    """{'start': 'HH:MM', 'end': 'HH:MM'} com horas e minutos reais."""
+    if not isinstance(valor, dict):
+        return False
+    for chave in ("start", "end"):
+        texto = valor.get(chave)
+        if not isinstance(texto, str):
+            return False
+        partes = texto.split(":")
+        if len(partes) != 2 or not all(p.isdigit() and len(p) <= 2 for p in partes):
+            return False
+        if not (0 <= int(partes[0]) <= 23 and 0 <= int(partes[1]) <= 59):
+            return False
+    return True
+
+
+def _lista_de_textos(valor):
+    return valor is None or (isinstance(valor, list) and all(isinstance(x, str) for x in valor))
+
+
+def _prazo_date(texto):
+    """vazio -> None; 'AAAA-MM-DD' real (de 2000 até hoje + 10 anos) -> date; qualquer outra coisa -> ValueError."""
+    if not texto:
+        return None
+    if not isinstance(texto, str):
+        raise ValueError("prazo")
+    dia = datetime.strptime(texto.strip(), "%Y-%m-%d").date()
+    if dia < date(2000, 1, 1) or dia > date.today() + timedelta(days=3653):
+        raise ValueError("prazo fora do intervalo")
+    return dia
+
+
+def _prazo_iso(texto):
+    dia = _prazo_date(texto)
+    return dia.isoformat() if dia else None
+
+
+def _validar_propostas(lista):
+    """Confere TODA a lista de passos antes de gravar qualquer um. Devolve (passos, None) ou ([], mensagem)."""
+    if not isinstance(lista, list) or not lista:
+        return [], "Não há passos para salvar."
+    if len(lista) > 12:
+        return [], "Passos demais de uma vez (no máximo 12)."
+    agora = datetime.now()
+    passos = []
+    for p in lista:
+        if not isinstance(p, dict):
+            return [], "Um dos passos veio num formato inválido."
+        titulo = p.get("titulo")
+        titulo = " ".join(titulo.split())[:200] if isinstance(titulo, str) else ""
+        if not titulo:
+            return [], "Um dos passos está sem título."
+        try:
+            inicio = datetime.fromisoformat(p["inicio"])
+        except (KeyError, TypeError, ValueError):
+            return [], "Um dos passos está com data ou hora inválida."
+        if not (agora - timedelta(days=1) <= inicio.replace(tzinfo=None) <= agora + timedelta(days=3653)):
+            return [], "Um dos passos está com data fora do intervalo permitido."
+        duracao = p.get("duracao_min", 30)
+        if isinstance(duracao, bool) or not isinstance(duracao, int) or not 5 <= duracao <= 480:
+            return [], "Um dos passos está com duração inválida (de 5 a 480 minutos)."
+        passos.append({"titulo": titulo, "inicio": inicio, "fim": inicio + timedelta(minutes=duracao)})
+    return passos, None
+
+
+def _planejar_fragmentos(id_usuario, titulos, prazo, duracao_min, ritmo, hoje=None, a_partir_de=None):
+    """Distribui os passos entre amanhã e o prazo (sem prazo: uma semana entre eles). O ritmo define o espaçamento mínimo.
+    Só propõe horários que a agenda confirma como livres: sem horário livre não há proposta. Devolve (propostas, aviso)."""
+    hoje = hoje or date.today()
+    titulos = list(titulos)[:12]
+    total = len(titulos)
+    if prazo and a_partir_de and prazo <= a_partir_de:   # [GERAR-MAIS] os passos que já existem chegam ao prazo
+        return [], "Os passos que você já tem chegam até o prazo; não sobrou dia livre depois deles. Edite o objetivo para um prazo maior."
+    base = max(hoje, a_partir_de) if a_partir_de else hoje   # [GERAR-MAIS] continua DEPOIS do último passo que já existe
+    if prazo:
+        inicio_janela = base if prazo <= base else base + timedelta(days=1)
+        dias = [inicio_janela + timedelta(days=i) for i in range((prazo - inicio_janela).days + 1)]   # o prazo já foi validado (até 10 anos)
+        intervalo = {"curto_frequente": 1, "moderado": 2, "longo_espacado": 3}.get(ritmo, 2)
+        quantos = min(total, (len(dias) - 1) // intervalo + 1)
+        alvos = [0] if quantos == 1 else [round(k * (len(dias) - 1) / (quantos - 1)) for k in range(quantos)]
+    else:
+        dias = [base + timedelta(days=i) for i in range(1, 7 * total + 8)]
+        quantos = total
+        alvos = [7 * (k + 1) - 1 for k in range(quantos)]
+    usados, slots = set(), []
+    for alvo in alvos:
+        ordem = [alvo]
+        for passo in range(1, len(dias)):
+            ordem += [alvo + passo, alvo - passo]
+        for idx in ordem:
+            if not prazo and abs(idx - alvo) > 6:
+                break                      # sem prazo, não se afasta mais de uma semana do dia-alvo
+            if idx in usados or not 0 <= idx < len(dias):
+                continue
+            achou = decisao.sugerir_horarios(id_usuario, dias[idx], duracao_min, max_sugestoes=1)
+            if achou.get("sugestoes"):
+                usados.add(idx)
+                slots.append(achou["sugestoes"][0]["inicio"])
+                break
+    slots.sort()
+    propostas = [{"titulo": titulos[i], "inicio": inicio, "duracao_min": duracao_min} for i, inicio in enumerate(slots)]
+    if not propostas:
+        return [], ("Não encontrei horário livre até o prazo. Tente um prazo maior ou libere espaço na agenda." if prazo
+                    else "Não encontrei horário livre nos próximos dias. Libere espaço na agenda e tente de novo.")
+    aviso = None
+    passos = lambda n: f"{n} passo" + ("" if n == 1 else "s")
+    if quantos < total:
+        aviso = f"Até o prazo cabem só {passos(quantos)} nesse ritmo (a IA sugeriu {total})."
+        if len(propostas) < quantos:
+            aviso = f"Só encontrei horário livre para {len(propostas)} de {total} passos até o prazo."
+    elif len(propostas) < total:
+        aviso = f"Só encontrei horário livre para {len(propostas)} de {total} passos {'até o prazo' if prazo else 'nos próximos dias'}."
+    return propostas, aviso
+
+
+def calcular_quantidade_fragmentos(prazo, hoje=None):
+    hoje = hoje or date.today()
+    if not prazo or prazo <= hoje:
+        return 4
+    semanas = max(1, (prazo - hoje).days // 7)
+    return min(semanas, 12)
+
+
+@app.route("/objetivos/novo/fragmentar/previa", methods=["POST"])
+@login_obrigatorio
+def novo_objetivo_fragmentar_previa():
+    titulo_objetivo = request.form.get("titulo", "").strip()
+    if not titulo_objetivo:
+        return jsonify(erro="Digite um título antes de fragmentar."), 400
+    try:
+        prazo_date = _prazo_date(request.form.get("prazo"))
+    except ValueError:
+        return jsonify(erro="Prazo inválido. Escolha uma data de hoje em diante."), 400
+    return _previa_fragmentos(titulo_objetivo, prazo_date)
+
+
+def _normalizar_titulo(texto):
+    """Minúsculas, sem acento e sem pontuação: para comparar títulos de passos."""
+    import re
+    import unicodedata
+    sem_acento = "".join(c for c in unicodedata.normalize("NFKD", str(texto).lower()) if not unicodedata.combining(c))
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", sem_acento).split())
+
+
+def _sem_repeticao(novos, existentes, limite=0.8):
+    """[GERAR-MAIS] Tira dos títulos novos os que repetem (ou quase) um passo que já existe. A IA já é instruída a não repetir; isto é a rede de segurança."""
+    import difflib
+    base = [_normalizar_titulo(t) for t in existentes]
+    mantidos = []
+    for t in novos:
+        n = _normalizar_titulo(t)
+        palavras = set(n.split())
+        repetido = False
+        for b in base:
+            parecidas = len(palavras & set(b.split())) / max(1, len(palavras | set(b.split())))
+            if n == b or difflib.SequenceMatcher(None, n, b).ratio() >= limite or parecidas >= limite:
+                repetido = True
+                break
+        if not repetido:
+            mantidos.append(t)
+    return mantidos
+
+
+def _mensagem_erro_ia(erro):
+    """[ERRO-IA] Traduz o erro do Gemini numa mensagem que a pessoa consiga usar; o detalhe técnico vai para o terminal."""
+    codigo = getattr(erro, "code", None)
+    texto = (str(getattr(erro, "status", "") or "") + " " + str(erro)).upper()
+    if codigo == 429 or "RESOURCE_EXHAUSTED" in texto:
+        return "A IA atingiu o limite de uso por enquanto. Espere cerca de um minuto e tente de novo."
+    if codigo in (500, 502, 503, 504) or "UNAVAILABLE" in texto:
+        return "A IA está sobrecarregada agora. Tenta de novo em instantes."
+    if codigo in (401, 403) or "API_KEY" in texto or "API KEY" in texto or "PERMISSION_DENIED" in texto:
+        return "A IA não aceitou a chave de acesso. Avise quem cuida da configuração."
+    if codigo == 404 or "NOT_FOUND" in texto:
+        return "O modelo de IA configurado não foi encontrado. Avise quem cuida da configuração."
+    return "Não consegui falar com a IA agora. Tenta de novo em instantes."
+
+
+def _previa_fragmentos(titulo_objetivo, prazo_date, existente=False, ja_existentes=None):
+    """Prévia dos passos (compartilhada pelo objetivo novo e pelo existente). Nada é gravado aqui.
+    [GERAR-MAIS] Com passos já existentes, continua DEPOIS do último, sem repetir os títulos que já existem."""
+    if prazo_date and prazo_date < date.today():
+        return jsonify(erro=("O prazo deste objetivo já passou. Edite o objetivo e escolha uma nova data para dividir em passos." if existente
+                             else "O prazo já passou. Escolha uma data de hoje em diante.")), 400
+    foco = request.form.get("foco", "geral")
+    ritmo = request.form.get("ritmo", "moderado")
+    duracao_min = 60 if ritmo == "longo_espacado" else 30
+    ativos = [f for f in (ja_existentes or []) if f.get("status") != "cancelada"]
+    titulos_existentes = [f["titulo"] for f in ativos]
+    datas = [f["data_inicio"].date() if hasattr(f["data_inicio"], "date") else f["data_inicio"] for f in ativos if f.get("data_inicio")]
+    a_partir_de = max(datas) if datas else None
+    quantidade = calcular_quantidade_fragmentos(prazo_date, hoje=max(date.today(), a_partir_de) if a_partir_de else None)
+
+    try:
+        pedido_extra = {"existentes": titulos_existentes[-30:]} if titulos_existentes else {}
+        titulos = ai.gerar_titulos_fragmentos(titulo_objetivo, prazo_date, foco, ritmo, quantidade, **pedido_extra)
+    except Exception as erro_ia:
+        chave = os.getenv("GEMINI_API_KEY", "")   # [ERRO-IA] antes o erro real nunca aparecia no terminal
+        detalhe = str(erro_ia).replace(chave, "***") if chave else str(erro_ia)
+        app.logger.error("Falha ao pedir os passos à IA: %s (code=%s, status=%s): %s",
+                         type(erro_ia).__name__, getattr(erro_ia, "code", None), getattr(erro_ia, "status", None), detalhe[:500])
+        return jsonify(erro=_mensagem_erro_ia(erro_ia)), 503
+    if not titulos:
+        return jsonify(erro="A IA não conseguiu gerar os fragmentos. Tenta de novo."), 502
+    if titulos_existentes:
+        titulos = _sem_repeticao(titulos, titulos_existentes)
+        if not titulos:
+            return jsonify(erro="A IA só repetiu passos que você já tem. Tente outro foco ou ritmo."), 409
+
+    propostas, aviso = _planejar_fragmentos(usuario_logado(), titulos, prazo_date, duracao_min, ritmo, a_partir_de=a_partir_de)
+    if not propostas:
+        return jsonify(erro=aviso), 409
+    return jsonify(propostas=propostas, aviso=aviso)
+
+
+@app.route("/objetivos/novo/fragmentar/confirmar", methods=["POST"])
+@login_obrigatorio
+def novo_objetivo_fragmentar_confirmar():
+    dados = request.get_json(silent=True)
+    if not isinstance(dados, dict):
+        return jsonify(erro="formato inválido"), 400
+    titulo_objetivo = dados.get("titulo_objetivo")
+    titulo_objetivo = " ".join(titulo_objetivo.split())[:200] if isinstance(titulo_objetivo, str) else ""
+    if not titulo_objetivo:
+        return jsonify(erro="título ausente"), 400
+    try:
+        prazo_str = _prazo_iso(dados.get("prazo"))
+    except ValueError:
+        return jsonify(erro="Prazo inválido."), 400
+    passos, erro = _validar_propostas(dados.get("propostas"))
+    if erro:
+        return jsonify(erro=erro), 400      # nada foi criado: a lista inteira é conferida antes de gravar
+    conflitos = servicos.conflitos_de_passos(usuario_logado(), passos)   # [CONFLITO-PASSOS]
+    if conflitos and not _confirmou_conflito_passos(dados.get("confirmar_conflito")):
+        return _resposta_conflito_passos(conflitos)      # nada foi criado (nem o objetivo)
+
+    id_objetivo = db.criar_objetivo(usuario_logado(), titulo_objetivo, prazo=prazo_str)
+    for p in passos:
+        db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, p["titulo"], p["inicio"], p["fim"])
+
+    _mascote_evento("tarefa_criada")   # [MASCOTE] [TEMA]
+    _verificar_desbloqueio_cafeteria(usuario_logado())
+    return jsonify(ok=True, redirect=url_for("objetivos"))
+
+
+# [PRAZO-JANELA] objetivo sem prazo: a janela "Duas perguntas rápidas" pergunta o prazo; a prévia usa o que foi escolhido
+@app.route("/objetivos/<int:id_objetivo>/fragmentar/previa", methods=["POST"])
+@login_obrigatorio
+def fragmentar_objetivo_previa(id_objetivo):
+    objetivo = db.buscar_objetivo(id_objetivo, usuario_logado())
+    if not objetivo:
+        return jsonify(erro="objetivo não encontrado"), 404
+    prazo = objetivo["prazo"]
+    prazo_date = prazo.date() if hasattr(prazo, "date") else prazo
+    ja_existentes = db.listar_fragmentos_objetivo(id_objetivo, usuario_logado())   # [GERAR-MAIS]
+    if prazo_date:
+        return _previa_fragmentos(objetivo["titulo"], prazo_date, existente=True, ja_existentes=ja_existentes)
+    try:
+        prazo_date = _prazo_date(request.form.get("prazo"))      # vazio -> None (sem prazo: 4 passos, uma semana entre eles)
+    except ValueError:
+        return jsonify(erro="Prazo inválido. Escolha uma data de hoje em diante."), 400
+    return _previa_fragmentos(objetivo["titulo"], prazo_date, ja_existentes=ja_existentes)
+
+
+@app.route("/objetivos/<int:id_objetivo>/fragmentar/confirmar", methods=["POST"])
+@login_obrigatorio
+def fragmentar_objetivo_confirmar(id_objetivo):
+    objetivo = db.buscar_objetivo(id_objetivo, usuario_logado())
+    if not objetivo:
+        return jsonify(erro="objetivo não encontrado"), 404
+    passos, erro = _validar_propostas(request.get_json(silent=True))
+    if erro:
+        return jsonify(erro=erro), 400      # nada foi criado: a lista inteira é conferida antes de gravar
+    try:
+        prazo_escolhido = _prazo_iso(request.args.get("prazo"))
+    except ValueError:
+        return jsonify(erro="Prazo inválido."), 400
+    if prazo_escolhido and prazo_escolhido < date.today().isoformat():
+        return jsonify(erro="O prazo já passou. Escolha uma data de hoje em diante."), 400
+    conflitos = servicos.conflitos_de_passos(usuario_logado(), passos)   # [CONFLITO-PASSOS]
+    if conflitos and not _confirmou_conflito_passos(request.args.get("confirmar_conflito")):
+        return _resposta_conflito_passos(conflitos)      # nada foi criado nem alterado (nem o prazo)
+    if prazo_escolhido and not objetivo["prazo"]:
+        db.atualizar_objetivo(id_objetivo, usuario_logado(), prazo=prazo_escolhido)   # o prazo escolhido na janela passa a ser o do objetivo
+    for p in passos:
+        db.criar_fragmento_objetivo(usuario_logado(), id_objetivo, p["titulo"], p["inicio"], p["fim"])
+
+    _mascote_evento("tarefa_criada")   # [MASCOTE] [TEMA]
+    _verificar_desbloqueio_cafeteria(usuario_logado())
+    return jsonify(ok=True, redirect=url_for("objetivos"))
+
+
+# ============================================================
+# CALENDÁRIO (lê a mesma agenda que a IA consulta)
+# ============================================================
+def _cor_do_evento(evento):
+    if evento["tipo"] == "tarefa":
+        return evento.get("cor") or COR_POR_STATUS.get(evento["status"], "#2563EB")
+    return COR_COMPROMISSO if evento["tipo"] == "compromisso" else COR_ROTINA
+
+
+@app.route("/calendario")
+@login_obrigatorio
+def calendario():
+    hoje = datetime.now()
+    ano = request.args.get("ano", type=int) or hoje.year
+    mes = request.args.get("mes", type=int) or hoje.month
+    if not (1 <= mes <= 12 and 1900 <= ano <= 2100):
+        ano, mes = hoje.year, hoje.month
+
+    semanas = calendario_lib.Calendar(firstweekday=6).monthdayscalendar(ano, mes)   # semana começa no domingo
+
+    primeiro = datetime(ano, mes, 1)
+    proximo_mes = datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)
+    carregada = agenda.carregar_agenda(usuario_logado(), primeiro, proximo_mes)   # 3 consultas para o mês todo
+    por_dia = agenda.eventos_por_dia(carregada, primeiro.date(), proximo_mes.date())
+
+    eventos_por_dia = {
+        dia.day: [{"label": e["titulo"], "cor": _cor_do_evento(e), "tipo": e["tipo"]} for e in eventos]
+        for dia, eventos in por_dia.items()
+    }
+
+    mes_anterior, ano_anterior = (12, ano - 1) if mes == 1 else (mes - 1, ano)
+    mes_seguinte, ano_seguinte = (1, ano + 1) if mes == 12 else (mes + 1, ano)
+
+    return render_template(
+        "calendario.html",
+        semanas=semanas,
+        eventos_por_dia=eventos_por_dia,
+        mes_nome=MESES_PT[mes - 1],
+        mes=mes, ano=ano,
+        hoje_dia=hoje.day, hoje_mes=hoje.month, hoje_ano=hoje.year,
+        mes_anterior=mes_anterior, ano_anterior=ano_anterior,
+        mes_seguinte=mes_seguinte, ano_seguinte=ano_seguinte,
+        **_pagina("calendario", "Agenda"),
+    )
+
+
+@app.route("/api/eventos")
+@login_obrigatorio
+def api_eventos():
+    """
+    Eventos do usuário entre duas datas (AAAA-MM-DD, 'fim' inclusivo; máximo 62 dias).
+    Mesma fonte do calendário e da IA: agenda.py.
+    """
+    try:
+        inicio = datetime.strptime(request.args.get("inicio", ""), "%Y-%m-%d")
+        fim = datetime.strptime(request.args.get("fim", request.args.get("inicio", "")), "%Y-%m-%d") + timedelta(days=1)
+    except ValueError:
+        return jsonify(erro="Informe inicio e fim no formato AAAA-MM-DD."), 400
+    if fim <= inicio or (fim - inicio).days > 62:
+        return jsonify(erro="Intervalo inválido (máximo 62 dias)."), 400
+
+    carregada = agenda.carregar_agenda(usuario_logado(), inicio, fim)
+    por_dia = agenda.eventos_por_dia(carregada, inicio.date(), fim.date())
+    vistos, eventos = set(), []
+    for lista in por_dia.values():
+        for e in lista:
+            if (e["tipo"], e["id"], e["inicio"]) in vistos:
+                continue
+            vistos.add((e["tipo"], e["id"], e["inicio"]))
+            eventos.append({
+                "tipo": e["tipo"], "id": e["id"], "titulo": e["titulo"],
+                "inicio": e["inicio"].isoformat(timespec="minutes"),
+                "fim": e["fim"].isoformat(timespec="minutes"),
+                "status": e["status"], "categoria": e["categoria"], "cor": _cor_do_evento(e),
+            })
+    eventos.sort(key=lambda e: e["inicio"])
+    return jsonify(eventos)
+
+
+# ============================================================
+# ASSISTENTE
+# ============================================================
+@app.route("/assistente")
+@login_obrigatorio
+def assistente():
+    mensagens = list(reversed(
+        db.listar_interacoes(usuario_logado(), contexto="interacao_geral", limite=50)
+    ))
+    return render_template("assistente.html", mensagens=mensagens, **_pagina("assistente", "Assistente"))
+
+
+@app.route("/assistente/enviar", methods=["POST"])
+@login_obrigatorio
+def enviar_mensagem():
+    texto = request.form.get("mensagem", "").strip()[:MAX_CARACTERES_MENSAGEM]
+    if not texto:
+        return redirect(url_for("assistente"))
+
+    id_usuario = usuario_logado()
+
+    # O histórico é lido antes de gravar a mensagem atual para não duplicá-la no contexto da IA.
+    historico = list(reversed(
+        db.listar_interacoes(id_usuario, contexto="interacao_geral", limite=10)
+    ))
+
+    db.registrar_interacao(id_usuario, texto, autor="usuario")
+
+    try:
+        resposta = ai.responder(id_usuario, texto, historico)
+        _mascote_evento("ia_respondeu")   # [MASCOTE] boca mexendo ao chegar a resposta
+    except Exception:
+        app.logger.exception("Falha ao gerar a resposta da IA (usuário %s)", id_usuario)
+        resposta = "Deu um problema pra falar com a IA agora. Tenta de novo em um instante."
+        _mascote_evento("ia_erro")        # [MASCOTE] expressão de confusão
+
+    # A resposta é salva no histórico para manter continuidade entre as mensagens.
+    db.registrar_interacao(id_usuario, resposta, autor="assistente")
+    return redirect(url_for("assistente"))
+
+
+# ==============================================================
+# MASCOTE, LOJA, JORNADA E TEMAS
+# ==============================================================
+# [ACESSÓRIOS] Cada mascote tem os seus. Um item de cada vez. Tudo libera até 600 pontos ("Dupla afiada").
+# Para cada "id" precisa existir o desenho (grupo .nc-acessorio-<id> no SVG do mascote, em mascote_robo.js)
+# e a regra de CSS que o mostra (mascote_robo.css). O verificar_pacote.py confere isso.
+ACESSORIOS_POR_MASCOTE = {
+    "robo": [
+        {"id": "oculos", "nome": "Óculos", "pontos_min": 100},
+        {"id": "gorro", "nome": "Gorro", "pontos_min": 200},
+        {"id": "oculos3d", "nome": "Óculos 3D de cinema", "pontos_min": 300},
+        {"id": "protetor", "nome": "Protetor de orelha térmico", "pontos_min": 450},   # com gorro em outra cor
+        {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
+    ],
+    "grao": [
+        {"id": "gorro", "nome": "Gorro", "pontos_min": 100},
+        {"id": "anjo", "nome": "Asas e auréola", "pontos_min": 250},
+        {"id": "jaqueta", "nome": "Jaqueta com capuz felpudo", "pontos_min": 400},
+        {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
+    ],
+    "boltz": [
+        {"id": "gorro", "nome": "Gorro", "pontos_min": 100},
+        {"id": "chuteira", "nome": "Chuteira de ouro", "pontos_min": 250},
+        {"id": "uniforme", "nome": "Uniforme do time NEOCORTEX", "pontos_min": 400},
+        {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
+    ],
+    "rabisco": [
+        {"id": "gorro", "nome": "Gorro", "pontos_min": 100},
+        {"id": "capacete", "nome": "Capacete de pedreiro", "pontos_min": 200},
+        {"id": "prancheta", "nome": "Prancheta", "pontos_min": 300},
+        {"id": "caminha", "nome": "Caminha de gato", "pontos_min": 450},   # em dia livre, o gato dorme nela
+        {"id": "cachecol", "nome": "Cachecol", "pontos_min": 600},
+    ],
+}
+ACESSORIOS_MASCOTE = ACESSORIOS_POR_MASCOTE["robo"]   # nome antigo: o catálogo do robô
+
+
+def acessorios_do_mascote(skin):
+    return ACESSORIOS_POR_MASCOTE.get(skin, ACESSORIOS_POR_MASCOTE["robo"])
+
+
+def acessorios_desbloqueados(pontos, skin="robo"):
+    catalogo = acessorios_do_mascote(skin)
+    if MODO_DEMO:   # [TEMA] gravação da apresentação: todos liberados
+        return {a["id"] for a in catalogo}
+    return {a["id"] for a in catalogo if pontos >= a["pontos_min"]}
+
+
+NIVEIS_MASCOTE = [
+    {"nivel": 1, "pontos_min": 0,   "nome": "Começando junto",     "frases_extra": False, "acessorio": None,       "animado": False},
+    {"nivel": 2, "pontos_min": 100, "nome": "Pegando o ritmo",     "frases_extra": True,  "acessorio": "novos acessórios", "animado": False},
+    {"nivel": 3, "pontos_min": 300, "nome": "Parceria de verdade", "frases_extra": True,  "acessorio": "novos acessórios", "animado": True},
+    {"nivel": 4, "pontos_min": 600, "nome": "Dupla afiada",        "frases_extra": True,  "acessorio": "novos acessórios", "animado": True},
+]
+
+
+def nivel_mascote(pontos):
+    atual = NIVEIS_MASCOTE[0]
+    for n in NIVEIS_MASCOTE:
+        if pontos >= n["pontos_min"]:
+            atual = n
+        else:
+            break
+    return atual
+
+
+@app.context_processor
+def injetar_mascote():
+    """[MASCOTE] [TEMA] [PERSONALIZAR] Pontos, tema, e a personalização do mascote ATUAL,
+    num lugar só (um único pop dos eventos)."""
+    if not GAMIFICACAO_ATIVA or not usuario_logado():
+        return {"mascote_ativo": False, "tema_ativo": "padrao", "mascote_skin": "robo"}
+
+    id_usuario = usuario_logado()
+    pontos = db.calcular_pontos_mascote(id_usuario)
+    atual = nivel_mascote(pontos)
+    proximo = next((n for n in NIVEIS_MASCOTE if n["pontos_min"] > pontos), None)
+    if proximo:
+        faixa = proximo["pontos_min"] - atual["pontos_min"]
+        progresso_pct = int(((pontos - atual["pontos_min"]) / faixa) * 100) if faixa else 100
+    else:
+        progresso_pct = 100
+
+    _verificar_desbloqueio_papelaria(id_usuario)   # [TEMA] a versão completa chega com o tempo, sem ação
+    intensidade = db.buscar_preferencia(id_usuario, "mascote_intensidade") or ""
+    liberados = _temas_liberados(id_usuario)       # {tema: nível}
+    tema = db.buscar_preferencia(id_usuario, "tema_visual") or "padrao"
+    if tema not in liberados:
+        tema = "padrao"
+    imersivo = liberados[tema] >= NIVEL_COMPLETO
+    skin = TEMAS[tema]["mascote"] if imersivo else "robo"
+
+    # [INTERFACE] clássica por padrão; imersiva liberada por pontos ou pelo tema completo. Liga sozinha e só volta
+    # à clássica se a pessoa escolher (preferência "interface_modo"). A liberação roda antes de consumir os eventos.
+    liberada = _interface_imersiva_liberada(id_usuario, pontos)
+    disponivel = liberada or (imersivo and tema != "padrao")   # o padrão nasce completo: só os pontos o liberam
+    modo = (db.buscar_preferencia(id_usuario, "interface_modo") or "") if disponivel else ""
+    usa_imersiva = disponivel and modo != "classica"
+
+    equipado = db.buscar_preferencia(id_usuario, _chave_mascote("mascote_acessorio_equipado", skin)) or "nenhum"
+    if equipado not in acessorios_desbloqueados(pontos, skin):
+        equipado = "nenhum"
+    cor = _cor_do_mascote(id_usuario, skin)
+
+    return {
+        "mascote_ativo": True,
+        "mascote_eventos": session.pop("mascote_eventos", []),
+        "mascote_intensidade": intensidade if intensidade in INTENSIDADES_MASCOTE else "",
+        "mascote_nivel": atual,
+        "mascote_pontos": pontos,
+        "mascote_proximo_nivel": proximo,
+        "mascote_progresso_pct": progresso_pct,
+        "mascote_acessorio": equipado,
+        "tema_ativo": tema,
+        "mascote_skin": skin,
+        "mascote_nome": TEMAS[tema]["mascote_nome"] if imersivo else TEMAS["padrao"]["mascote_nome"],
+        "tema_imersivo": imersivo,
+        # o que a tela inicial e a agenda desenham: na versão simples, a rede do padrão nas cores do tema
+        # vazio = interface clássica (tela original); com valor = o que a tela inicial e a agenda desenham
+        "tema_semana": (tema if imersivo else "padrao") if usa_imersiva else "",
+        "interface_imersiva": usa_imersiva,
+        "interface_imersiva_disponivel": disponivel,
+        "pontos_interface": PONTOS_INTERFACE_IMERSIVA,
+        "mascote_cor": cor["cor"],
+        "mascote_brilho": cor["brilho"],
+        "mascote_cor_id": cor["id"],
+        "cores_mascote": CORES_MASCOTE,
+        "temas": {tid: {**info, "liberado": tid in liberados, "nivel": liberados.get(tid, 0)}
+                  for tid, info in TEMAS.items()},
+    }
+
+
+@app.route("/configuracoes/mascote", methods=["POST"])
+@login_obrigatorio
+def salvar_mascote():
+    intensidade = request.form.get("mascote_animacao")
+    if intensidade in INTENSIDADES_MASCOTE:
+        db.salvar_preferencia(usuario_logado(), "mascote_intensidade", intensidade)
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/tema", methods=["POST"])
+@login_obrigatorio
+def salvar_tema():
+    """[TEMA] Troca o tema. Só aceita temas já liberados; nada nos dados muda."""
+    escolha = request.form.get("tema", "")
+    if escolha in TEMAS and escolha in _temas_liberados(usuario_logado()):
+        db.salvar_preferencia(usuario_logado(), "tema_visual", escolha)
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/interface", methods=["POST"])
+@login_obrigatorio
+def salvar_interface():
+    """[INTERFACE] Clássica ou imersiva. A clássica é sempre permitida; a imersiva só depois de liberada."""
+    escolha = request.form.get("interface", "")
+    if escolha == "classica" or (escolha == "imersiva" and _interface_imersiva_disponivel(usuario_logado())):
+        db.salvar_preferencia(usuario_logado(), "interface_modo", escolha)
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/mascote-cor", methods=["POST"])
+@login_obrigatorio
+def salvar_cor_mascote():
+    """[PERSONALIZAR] Cor do mascote ATUAL (cada mascote guarda a sua). Só aceita cores da paleta."""
+    escolha = request.form.get("cor", "")
+    if escolha in {c["id"] for c in CORES_MASCOTE}:
+        skin = _skin_atual(usuario_logado())
+        db.salvar_preferencia(usuario_logado(), _chave_mascote("mascote_cor", skin), escolha)
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/mascote/loja")
+@login_obrigatorio
+def mascote_loja():
+    pontos = db.calcular_pontos_mascote(usuario_logado())
+    skin = _skin_atual(usuario_logado())
+    desbloqueados = acessorios_desbloqueados(pontos, skin)
+    equipado = db.buscar_preferencia(usuario_logado(), _chave_mascote("mascote_acessorio_equipado", skin)) or "nenhum"
+    if equipado not in desbloqueados:   # ex.: acessório que não existe mais no catálogo deste mascote
+        equipado = "nenhum"
+    return render_template(
+        "mascote_loja.html",
+        acessorios=acessorios_do_mascote(skin),
+        desbloqueados=desbloqueados,
+        equipado_atual=equipado,
+        **_pagina("mascote_loja", "Loja"),
+    )
+
+
+@app.route("/mascote/loja/equipar", methods=["POST"])
+@login_obrigatorio
+def equipar_acessorio():
+    escolha = request.form.get("acessorio", "nenhum")
+    pontos = db.calcular_pontos_mascote(usuario_logado())
+    skin = _skin_atual(usuario_logado())   # [PERSONALIZAR] equipa no mascote atual
+    if escolha != "nenhum" and escolha not in acessorios_desbloqueados(pontos, skin):
+        abort(403)  # tentou equipar algo que não desbloqueou (ou que é de outro mascote)
+    db.salvar_preferencia(usuario_logado(), _chave_mascote("mascote_acessorio_equipado", skin), escolha)
+    if escolha != "nenhum":   # [ACESSÓRIOS] o mascote comenta o item novo
+        item = next(a["nome"] for a in acessorios_do_mascote(skin) if a["id"] == escolha)
+        _mascote_evento("acessorio", id=escolha, item=item)
+    return redirect(url_for("mascote_loja"))
+
+
+@app.route("/jornada")
+@login_obrigatorio
+def jornada():
+    if not GAMIFICACAO_ATIVA:   # sem gamificação não há níveis nem mascote: volta ao Início
+        return redirect(url_for("dashboard"))
+    pontos = db.calcular_pontos_mascote(usuario_logado())
+    nivel_atual = nivel_mascote(pontos)
+    catalogo = acessorios_do_mascote(_skin_atual(usuario_logado()))   # [ACESSÓRIOS] os itens variam por mascote
+    nos = []
+    for i, n in enumerate(NIVEIS_MASCOTE):
+        if n["nivel"] == nivel_atual["nivel"]:
+            status = "atual"
+        elif pontos >= n["pontos_min"]:
+            status = "concluido"
+        else:
+            status = "bloqueado"
+        proximo_min = NIVEIS_MASCOTE[i + 1]["pontos_min"] if i + 1 < len(NIVEIS_MASCOTE) else float("inf")
+        # acessórios liberados ENTRE este nível e o próximo (nomes reais, do mascote em uso)
+        itens = [a["nome"] for a in catalogo if n["pontos_min"] <= a["pontos_min"] < proximo_min]
+        nos.append({**n, "status": status, "itens": itens})
+    return render_template("jornada.html", nos=nos, **_pagina("jornada", "Jornada"))
+
+
+# ============================================================
+# CONFIGURAÇÕES
+# ============================================================
+
+@app.route("/configuracoes")
+@login_obrigatorio
+def configuracoes():
+    _verificar_desbloqueio_cafeteria(usuario_logado())   # [TEMA] cobre quem já tinha fragmentos
+    _verificar_desbloqueio_papelaria(usuario_logado())   # [TEMA] cobre quem já tinha rotina montada
+    notificacoes_ativas = db.buscar_preferencia(usuario_logado(), "notificacoes_ativas") == "true"
+    return render_template(
+        "configuracoes.html",
+        notificacoes_ativas=notificacoes_ativas,
+        cronometro_ativo=_cronometro_ativo(),   # [CRONOMETRO-DISCRETO]
+        **_pagina("configuracoes", "Configurações"),
+    )
+
+
+@app.route("/configuracoes/perfil", methods=["POST"])
+@login_obrigatorio
+def atualizar_perfil():
+    nome = request.form.get("nome", "").strip()
+    if len(nome) < 2:
+        return redirect(url_for("configuracoes"))
+
+    db.atualizar_usuario(usuario_logado(), nome=nome)
+    session["nome"] = nome
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/senha", methods=["POST"])
+@login_obrigatorio
+def trocar_senha_rota():
+    senha_atual = request.form.get("senha_atual", "")
+    nova_senha = request.form.get("nova_senha", "")
+
+    usuario = db.buscar_usuario(usuario_logado())
+    if not usuario or not bcrypt.checkpw(senha_atual.encode("utf-8"), usuario["senha_hash"].encode("utf-8")):
+        return redirect(url_for("configuracoes", erro="senha_atual"))
+
+    if seguranca.senha_valida(nova_senha):
+        return redirect(url_for("configuracoes", erro="senha_curta"))
+
+    db.trocar_senha(usuario_logado(), nova_senha)
+    return redirect(url_for("configuracoes", sucesso="senha"))
+
+
+@app.route("/configuracoes/exportar")
+@login_obrigatorio
+def exportar_dados():
+    id_usuario = usuario_logado()
+    usuario = db.buscar_usuario(id_usuario) or {}
+
+    payload = {
+        "nome": usuario.get("nome") or session.get("nome"),
+        "email": usuario.get("email"),
+        "exportado_em": datetime.now().isoformat(),
+        "tarefas": [
+            {
+                "titulo": t["titulo"], "categoria": t["categoria"], "status": t["status"],
+                "data_inicio": t["data_inicio"].isoformat(), "data_fim": t["data_fim"].isoformat(),
+            }
+            for t in db.listar_tarefas(id_usuario)
+        ],
+        "compromissos": [
+            {
+                "titulo": c["titulo"], "tipo": c["tipo"], "local": c["local"],
+                "data_inicio": c["data_inicio"].isoformat(), "data_fim": c["data_fim"].isoformat(),
+            }
+            for c in db.listar_compromissos(id_usuario)
+        ],
+        "rotina_fixa": [
+            {"descricao": r["descricao"], "dia_semana": r["dia_semana"],
+             "hora_inicio": r["hora_inicio"], "hora_fim": r["hora_fim"]}
+            for r in db.listar_rotina(id_usuario)
+        ],
+    }
+
+    return Response(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        mimetype="application/json",
+        headers={"Content-Disposition": "attachment; filename=neocortex-dados.json"},
+    )
+
+
+@app.route("/configuracoes/cronometro", methods=["POST"])
+@login_obrigatorio
+def salvar_cronometro():
+    """[CRONOMETRO-DISCRETO] Liga ou desliga os botões 'Começar' das tarefas. O que já está em andamento continua podendo pausar e concluir."""
+    ativado = request.form.get("cronometro_ativo") == "on"
+    db.salvar_preferencia(usuario_logado(), "cronometro_ativo", "true" if ativado else "false")
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/notificacoes", methods=["POST"])
+@login_obrigatorio
+def salvar_notificacoes():
+    ativado = request.form.get("notificacoes_ativas") == "on"
+    db.salvar_preferencia(usuario_logado(), "notificacoes_ativas", "true" if ativado else "false")
+    return redirect(url_for("configuracoes"))
+
+
+@app.route("/configuracoes/excluir-conta", methods=["POST"])
+@login_obrigatorio
+def excluir_conta():
+    senha_atual = request.form.get("senha_atual", "")
+    usuario = db.buscar_usuario(usuario_logado())
+    if not usuario or not bcrypt.checkpw(senha_atual.encode("utf-8"), usuario["senha_hash"].encode("utf-8")):
+        return redirect(url_for("configuracoes", erro="senha_atual"))
+
+    db.excluir_usuario(usuario_logado())
+    session.clear()
+    return redirect(url_for("tela_login"))
+
+
+TAGS_MARKDOWN_PERMITIDAS = ["p", "br", "strong", "em", "b", "i", "ul", "ol", "li", "h1", "h2", "h3", "h4", "code", "pre", "blockquote", "a"]
+ATRIBUTOS_MARKDOWN_PERMITIDOS = {"a": ["href", "title"]}
+
+
+def renderizar_markdown(texto):
+    html = markdown_lib.markdown(texto, extensions=["nl2br"])
+    return bleach.clean(html, tags=TAGS_MARKDOWN_PERMITIDAS, attributes=ATRIBUTOS_MARKDOWN_PERMITIDOS, strip=True)
+
+
+app.jinja_env.filters["markdown"] = renderizar_markdown
+
+
+@app.context_processor
+def injetar_acessibilidade():
+    if not usuario_logado():
+        return {}
+    return {
+        chave: seguranca.acessibilidade_valida(chave, db.buscar_preferencia(usuario_logado(), chave))   # valor estranho vira o padrão
+        for chave in ("acess_fonte", "acess_contraste", "acess_tipografia")
+    }
+
+
+@app.route("/configuracoes/acessibilidade", methods=["POST"])
+@login_obrigatorio
+def salvar_acessibilidade():
+    for chave, campo in (
+        ("acess_fonte", "acess_fonte"),
+        ("acess_contraste", "acess_contraste_oculto"),
+        ("acess_tipografia", "acess_tipografia_oculto"),
+    ):
+        valor = request.form.get(campo)
+        if valor in seguranca.ACESSIBILIDADE[chave]:   # [SEGURANÇA] só grava o que as telas oferecem
+            db.salvar_preferencia(usuario_logado(), chave, valor)
+    return redirect(url_for("configuracoes"))
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    # debug só quando pedido (FLASK_DEBUG=1); nunca ligado por padrão
+    app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1")

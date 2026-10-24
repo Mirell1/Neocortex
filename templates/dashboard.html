@@ -1,16 +1,125 @@
-{% extends "base_app.html" %}
+{% extends "base_app_novo.html" %}
+
+{% block topbar_extra %}
+<input id="dashboardSearchInput" class="search" placeholder="🔍 Buscar tarefa..." aria-label="Buscar tarefa de hoje">
+{% endblock %}
+
 {% block conteudo %}
+{# [TEMA] vocabulário de cada tema. Com a gamificação desligada, a tela volta a ser a original. #}
+{% set TEXTOS = {
+  'padrao': {
+    'placar': 'Progresso de hoje', 'nota': 'Cada tarefa concluída fortalece uma conexão.',
+    'semana': 'Sua rede da semana', 'tarefas': 'Tarefas de hoje', 'selo': 'conectada',
+    'frase_cheia': 'Hoje você tem ' ~ total ~ (' tarefa. ' if total == 1 else ' tarefas. ') ~ concluidas ~ (' já está conectada.' if concluidas == 1 else ' já estão conectadas.'),
+    'frase_vazia': 'Nenhuma tarefa pra hoje. Bom momento pra planejar ou descansar.'},
+  'cafeteria': {
+    'placar': 'Pedido do dia', 'nota': 'A xícara enche a cada tarefa concluída.',
+    'semana': 'Sua prateleira da semana', 'tarefas': 'Pedidos de hoje', 'selo': 'servida',
+    'frase_cheia': 'Hoje tem ' ~ total ~ (' pedido' if total == 1 else ' pedidos') ~ ' no cardápio. ' ~ concluidas ~ (' já foi servido.' if concluidas == 1 else ' já foram servidos.'),
+    'frase_vazia': 'Nenhum pedido pra hoje. Bom momento pra planejar ou descansar.'},
+  'papelaria': {
+    'placar': 'Página de hoje', 'nota': 'O marca-texto avança a cada tarefa riscada.',
+    'semana': 'Seu planner da semana', 'tarefas': 'Lista de hoje', 'selo': 'feito!',
+    'frase_cheia': 'A página de hoje tem ' ~ total ~ (' item. ' if total == 1 else ' itens. ') ~ concluidas ~ (' já riscado.' if concluidas == 1 else ' já riscados.'),
+    'frase_vazia': 'Página de hoje em branco. Bom momento pra planejar ou descansar.'},
+  'campeonato': {
+    'placar': 'Placar do dia', 'nota': 'Conta só as suas tarefas: não existe adversário.',
+    'semana': 'Sua escalação da semana', 'tarefas': 'Escalação de hoje', 'selo': 'gol!',
+    'frase_cheia': 'Hoje a escalação tem ' ~ total ~ (' tarefa. ' if total == 1 else ' tarefas. ') ~ concluidas ~ (' já concluída.' if concluidas == 1 else ' já concluídas.'),
+    'frase_vazia': 'Nenhuma tarefa escalada pra hoje. Bom momento pra planejar ou descansar.'},
+} %}
+{# interface IMERSIVA (prêmio): tema_semana diz qual vocabulário e qual semana desenhar. Na versão simples de um tema ela usa a
+   rede do padrão. Com tema_semana vazio vale a interface CLÁSSICA, a original, que é a de todo mundo. #}
+{% set T = TEXTOS.get(tema_semana) if (mascote_ativo and tema_semana) else none %}
 
-<div class="section-head">
-  <h2>Dashboard de produtividade</h2>
+{% if T %}
+{# ================= TELA INICIAL TEMÁTICA ================= #}
+<div class="nc-inicio">
+  <div class="nc-inicio-linha">
+    <section class="nc-card nc-inicio-boas" aria-label="Boas-vindas">
+      <div class="texto">
+        <h2>{{ saudacao }}{{ ', ' ~ primeiro_nome if primeiro_nome }}!</h2>
+        <p class="frase">{{ T.frase_cheia if total else T.frase_vazia }}</p>
+        {% if mascote_ativo %}<p class="dica"><span class="so-mouse">Passe o mouse sobre o {{ mascote_nome }} para ver dicas e clique para abrir o Assistente.</span><span class="so-toque">Toque no {{ mascote_nome }} para ver dicas.</span></p>{% endif %}
+      </div>
+      {% if mascote_ativo %}
+      <div class="nc-inicio-mascote">
+        {% with mascote_modo='normal' %}{% include "partials/mascote.html" %}{% endwith %}
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="nc-card nc-inicio-placar" aria-label="{{ T.placar }}">
+      <p class="rotulo">{{ T.placar }}</p>
+      <p class="numero">{{ concluidas }} <span>de {{ total }} {{ 'concluída' if total == 1 else 'concluídas' }}</span></p>
+      <div class="barra" role="img" aria-label="{{ concluidas }} de {{ total }} tarefas concluídas"><span data-anima-barra style="width:{{ pct }}%;"></span></div>
+      <p class="nota">{{ T.nota }}</p>
+    </section>
+  </div>
+
+  <section class="nc-card nc-inicio-semana" aria-labelledby="tituloSemana">
+    <div class="cabeca">
+      <h3 id="tituloSemana">{{ T.semana }}</h3>
+      <a href="{{ url_for('calendario') }}">Ver na agenda</a>
+    </div>
+    <div id="semanaTematica"></div>
+  </section>
+
+  {% set titulo_tarefas = T.tarefas %}
+  {% set selo_concluida = T.selo %}
+  {% include "partials/tarefas_hoje.html" %}
 </div>
 
-<div class="card" style="padding:24px;">
-  {% if grafico_html %}
-    {{ grafico_html | safe }}
-  {% else %}
-    <p style="color:var(--text2);">Cadastre tarefas e conclua algumas pra ver seu dashboard aqui.</p>
-  {% endif %}
-</div>
+<script src="{{ url_for('static', filename='semana_tematica.js') }}"></script>
+<script>
+  NCSemana.render(document.getElementById('semanaTematica'), {{ tema_semana|tojson }}, {{ semana_dias|tojson }},
+    { urlDia: {{ url_for('calendario')|tojson }} });
+</script>
 
+{% else %}
+{# ================= TELA INICIAL CLÁSSICA (a original): é a de todo mundo até liberar a imersiva; também é a tela com a gamificação desligada ================= #}
+<div style="padding:32px;display:flex;flex-direction:column;gap:24px;">
+  <div class="nc-hero-progresso"
+    style="border-radius:20px;overflow:hidden;background:linear-gradient(155deg, #01004E 0%, #2563EB 55%, #7C3AED 100%);padding:32px;position:relative;">
+    <div
+      style="position:absolute;top:-40%;right:-10%;width:300px;height:300px;border-radius:50%;background:rgba(255,255,255,0.06);pointer-events:none;">
+    </div>
+    <div
+      style="background:rgba(255,255,255,0.1);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.18);border-radius:16px;padding:28px;position:relative;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+        <div>
+          <p
+            style="margin:0 0 4px;font-size:12px;font-weight:700;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:1px;">
+            Progresso de hoje</p>
+          <h2 style="margin:0;font-size:32px;font-weight:800;color:white;letter-spacing:-0.5px;">{{ concluidas }} <span
+              style="font-size:18px;font-weight:600;opacity:0.7;">de {{ total }}</span></h2>
+        </div>
+        <div
+          style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:white;">
+          {{ pct }}%</div>
+      </div>
+      <div style="height:8px;border-radius:4px;background:rgba(255,255,255,0.2);margin-bottom:16px;">
+        <div class="nc-barra-progresso" style="height:100%;border-radius:4px;background:linear-gradient(90deg, #A78BFA, white);width:{{ pct }}%;">
+        </div>
+      </div>
+      <p style="margin:0;font-size:13px;font-weight:600;color:rgba(255,255,255,0.8);">Você já completou {{ concluidas }}
+        tarefas hoje.</p>
+    </div>
+  </div>
+
+  {% set titulo_tarefas = 'Tarefas de hoje' %}
+  {% set selo_concluida = '' %}
+  {% include "partials/tarefas_hoje.html" %}
+</div>
+{% endif %}
+
+<script>
+  /* busca do topo: filtra as tarefas de hoje pelo título (corrigido: as linhas agora têm a classe e o data-titulo) */
+  document.getElementById('dashboardSearchInput')?.addEventListener('input', function (e) {
+    const termo = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#listaTarefasHoje .linha-tarefa').forEach(function (linha) {
+      linha.style.display = linha.dataset.titulo.includes(termo) ? 'flex' : 'none';
+    });
+  });
+</script>
 {% endblock %}

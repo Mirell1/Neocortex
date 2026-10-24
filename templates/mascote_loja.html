@@ -1,0 +1,46 @@
+{% extends "base_app_novo.html" %}
+{% block conteudo %}
+<div style="padding:32px;display:flex;flex-direction:column;align-items:center;">
+  <div style="width:100%;max-width:720px;">
+    <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:var(--nc-text);">Loja</h2>
+    <p style="margin:0 0 28px;font-size:13px;font-weight:600;color:var(--nc-text2);">Você tem {{ mascote_pontos }} pontos. Escolha um acessório desbloqueado para o {{ mascote_nome }}. Cada mascote guarda o seu visual.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;">
+
+      <div class="nc-card" style="padding:20px;text-align:center;{{ 'outline:2px solid #2563EB;' if equipado_atual == 'nenhum' else '' }}">
+        <p style="margin:0 0 12px;font-size:13px;font-weight:700;color:var(--nc-text);">Sem acessório</p>
+        <form method="POST" action="{{ url_for('equipar_acessorio') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="acessorio" value="nenhum">
+          <button type="submit" class="{{ 'btn-primary' if equipado_atual != 'nenhum' else 'btn-outline' }}" style="width:100%;height:38px;" {{ 'disabled' if equipado_atual == 'nenhum' else '' }}>
+            {{ 'Equipado' if equipado_atual == 'nenhum' else 'Usar' }}
+          </button>
+        </form>
+      </div>
+
+      {% for a in acessorios %}
+      {% set desbloqueado = a.id in desbloqueados %}
+      <div class="nc-card" style="padding:20px;text-align:center;{{ 'outline:2px solid #2563EB;' if equipado_atual == a.id else '' }}{{ 'opacity:0.5;' if not desbloqueado else '' }}">
+        <div style="height:120px;display:flex;align-items:center;justify-content:center;">
+          {# a prévia usa o mascote do tema ativo (todos têm encaixes de acessório) #}
+          {% with mascote_modo='normal', mascote_estatico=true, mascote_acessorio=(a.id if desbloqueado else '') %}{% include "partials/mascote.html" %}{% endwith %}
+        </div>
+        <p style="margin:12px 0 4px;font-size:13px;font-weight:700;color:var(--nc-text);">{{ a.nome }}</p>
+        {% if desbloqueado %}
+        <form method="POST" action="{{ url_for('equipar_acessorio') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="acessorio" value="{{ a.id }}">
+          <button type="submit" class="{{ 'btn-primary' if equipado_atual == a.id else 'btn-outline' }}" style="width:100%;height:38px;" {{ 'disabled' if equipado_atual == a.id else '' }}>
+            {{ 'Equipado' if equipado_atual == a.id else 'Usar' }}
+          </button>
+        </form>
+        {% else %}
+        <p style="margin:0;font-size:11px;font-weight:700;color:var(--nc-text2);">🔒 Desbloqueia com {{ a.pontos_min }} pontos</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}

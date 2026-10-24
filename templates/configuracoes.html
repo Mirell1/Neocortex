@@ -1,0 +1,269 @@
+{% extends "base_app_novo.html" %}
+{% block conteudo %}
+<div style="padding:32px;display:flex;flex-direction:column;align-items:center;">
+  <div style="width:100%;max-width:640px;display:flex;flex-direction:column;gap:28px;">
+
+    {% if request.args.get('erro') == 'senha_atual' %}
+    <p style="color:#EF4444;font-size:13px;font-weight:700;">Senha atual incorreta.</p>
+    {% elif request.args.get('erro') == 'senha_curta' %}
+    <p style="color:#EF4444;font-size:13px;font-weight:700;">A nova senha precisa ter pelo menos 8 caracteres (e no máximo 72 bytes).</p>
+    {% elif request.args.get('sucesso') == 'senha' %}
+    <p style="color:#22C55E;font-size:13px;font-weight:700;">Senha alterada com sucesso!</p>
+    {% endif %}
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Perfil</h3>
+      <div style="display:flex;align-items:center;gap:20px;">
+        <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg, #2563EB, #7C3AED);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:white;flex-shrink:0;">
+          {{ inicial_usuario }}</div>
+        <div style="flex:1;">
+          <p style="margin:0;font-size:18px;font-weight:800;color:var(--nc-text);">{{ session.nome }}</p>
+        </div>
+        <button id="btnEditarNome" class="btn-ghost-sm">Editar nome</button>
+      </div>
+    </div>
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Seu progresso</h3>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+        <p style="margin:0;font-size:16px;font-weight:800;color:var(--nc-text);">{{ mascote_nivel.nome }}</p>
+        <p style="margin:0;font-size:13px;font-weight:700;color:var(--nc-text2);">{{ mascote_pontos }} pontos</p>
+      </div>
+      <div style="height:8px;border-radius:4px;background:var(--nc-border);margin-bottom:8px;">
+        <div data-anima-barra style="height:100%;border-radius:4px;background:linear-gradient(90deg,#2563EB,#7C3AED);width:{{ mascote_progresso_pct }}%;"></div>
+      </div>
+      {% if mascote_proximo_nivel %}
+      <p style="margin:0 0 18px;font-size:12px;font-weight:500;color:var(--nc-text2);">Faltam {{ mascote_proximo_nivel.pontos_min - mascote_pontos }} pontos para "{{ mascote_proximo_nivel.nome }}"</p>
+      {% else %}
+      <p style="margin:0 0 18px;font-size:12px;font-weight:500;color:var(--nc-text2);">Nível máximo alcançado</p>
+      {% endif %}
+      <p style="margin:0;font-size:11px;font-weight:700;color:var(--nc-text2);text-transform:uppercase;letter-spacing:0.5px;">Como pontuar</p>
+      <p style="margin:4px 0 0;font-size:12.5px;font-weight:500;color:var(--nc-text2);line-height:1.6;">+10 por tarefa concluída · +50 por objetivo concluído</p>
+    </div>
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Acessibilidade</h3>
+      <form method="POST" action="{{ url_for('salvar_acessibilidade') }}" onchange="this.submit()">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div style="margin-bottom:18px;">
+          <label class="nc-label">Tamanho da fonte</label>
+          <select class="nc-input" name="acess_fonte">
+            <option value="normal" {{ 'selected' if acess_fonte == 'normal' }}>Normal</option>
+            <option value="grande" {{ 'selected' if acess_fonte == 'grande' }}>Grande</option>
+            <option value="maior" {{ 'selected' if acess_fonte == 'maior' }}>Maior ainda</option>
+          </select>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Alto contraste</p>
+          <input type="checkbox" name="acess_contraste" aria-label="Alto contraste" value="alto" {{ 'checked' if acess_contraste == 'alto' }}
+                 onchange="this.form.querySelector('[name=acess_contraste_oculto]').value = this.checked ? 'alto' : 'normal'; this.form.submit();">
+          <input type="hidden" name="acess_contraste_oculto" value="{{ acess_contraste }}">
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Fonte para dislexia (Lexend)</p>
+          <input type="checkbox" name="acess_tipografia" aria-label="Fonte para dislexia (Lexend)" value="dislexia" {{ 'checked' if acess_tipografia == 'dislexia' }}
+                 onchange="this.form.querySelector('[name=acess_tipografia_oculto]').value = this.checked ? 'dislexia' : 'padrao'; this.form.submit();">
+          <input type="hidden" name="acess_tipografia_oculto" value="{{ acess_tipografia }}">
+        </div>
+      </form>
+    </div>
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Aparência</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:{{ '18px' if mascote_ativo else '0' }};">
+        <div>
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Modo escuro</p>
+        </div>
+        <div class="nc-toggle" id="toggleDark">
+          <div class="knob"></div>
+        </div>
+      </div>
+      {% if mascote_ativo %}
+      <form method="POST" action="{{ url_for('salvar_mascote') }}" style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="nc-label" for="mascote_animacao">Animações do mascote</label>
+        <select class="nc-input" id="mascote_animacao" name="mascote_animacao" onchange="this.form.submit()">
+          <option value="completa" {{ 'selected' if mascote_intensidade == 'completa' }}>Completas</option>
+          <option value="reduzida" {{ 'selected' if mascote_intensidade == 'reduzida' }}>Reduzidas</option>
+          <option value="desligada" {{ 'selected' if mascote_intensidade == 'desligada' }}>Sem animação</option>
+        </select>
+      </form>
+
+      <form method="POST" action="{{ url_for('salvar_tema') }}" style="margin:18px 0 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset style="border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;">
+          <legend class="nc-label">Tema</legend>
+          {% for tid, t in temas.items() %}
+          <label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1.5px solid var(--nc-border);border-radius:12px;cursor:{{ 'pointer' if t.liberado else 'default' }};opacity:{{ '1' if t.liberado else '0.7' }};">
+            <input type="radio" name="tema" value="{{ tid }}" {{ 'checked' if tid == tema_ativo }} {{ '' if t.liberado else 'disabled' }}
+                   onchange="this.form.submit()" style="margin-top:3px;">
+            <span>
+              {# [TEMA] mostra a versão liberada e o que falta para a próxima, sem tom de cobrança #}
+              <strong style="color:var(--nc-text);">{{ t.nome }}</strong>
+              {% if t.area %}<small style="color:var(--nc-text2);font-weight:600;"> · área {{ t.area }}</small>{% endif %}
+              {% if tid != 'padrao' and t.nivel == 1 %}<small style="margin-left:6px;padding:2px 8px;border-radius:999px;background:var(--nc-bg);border:1px solid var(--nc-border);color:var(--nc-text2);font-weight:700;">versão simples</small>{% endif %}
+              {% if tid != 'padrao' and t.nivel == 2 %}<small style="margin-left:6px;padding:2px 8px;border-radius:999px;background:var(--nc-bg);border:1px solid var(--nc-border);color:var(--nc-text2);font-weight:700;">versão completa</small>{% endif %}
+              <br>
+              <small style="color:var(--nc-text2);">
+                {% if not t.liberado %}{{ t.como_liberar }}
+                {% elif tid != 'padrao' and t.nivel == 1 %}Cores do tema liberadas. {{ t.como_completar }}
+                {% else %}{{ t.descricao }}{% endif %}
+              </small>
+            </span>
+          </label>
+          {% endfor %}
+        </fieldset>
+      </form>
+
+      <form method="POST" action="{{ url_for('salvar_interface') }}" style="margin:18px 0 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset style="border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;">
+          <legend class="nc-label">Interface</legend>
+          <label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1.5px solid var(--nc-border);border-radius:12px;cursor:pointer;">
+            <input type="radio" name="interface" value="classica" {{ 'checked' if not interface_imersiva }} onchange="this.form.submit()" style="margin-top:3px;">
+            <span>
+              <strong style="color:var(--nc-text);">Clássica</strong><br>
+              <small style="color:var(--nc-text2);">A tela original do NEOCORTEX: progresso do dia, lista de tarefas e agenda em três visões.</small>
+            </span>
+          </label>
+          <label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1.5px solid var(--nc-border);border-radius:12px;cursor:{{ 'pointer' if interface_imersiva_disponivel else 'default' }};opacity:{{ '1' if interface_imersiva_disponivel else '0.7' }};">
+            <input type="radio" name="interface" value="imersiva" {{ 'checked' if interface_imersiva }} {{ '' if interface_imersiva_disponivel else 'disabled' }}
+                   onchange="this.form.submit()" style="margin-top:3px;">
+            <span>
+              <strong style="color:var(--nc-text);">Imersiva</strong>
+              {% if not interface_imersiva_disponivel %}<small style="color:var(--nc-text2);font-weight:600;"> · bloqueada</small>{% endif %}<br>
+              <small style="color:var(--nc-text2);">
+                {% if interface_imersiva_disponivel %}A semana desenhada como rede (ou como o tema escolhido), com o mascote no cartão de boas-vindas.
+                {% else %}Com {{ pontos_interface }} pontos (nível "Pegando o ritmo") você libera a interface imersiva. Faltam {{ [pontos_interface - mascote_pontos, 0]|max }}.{% endif %}
+              </small>
+            </span>
+          </label>
+        </fieldset>
+      </form>
+
+      <style>.nc-cor-opcao:focus-within { outline: 2px solid var(--nc-text); outline-offset: 2px; }</style>
+      <form method="POST" action="{{ url_for('salvar_cor_mascote') }}" style="margin:18px 0 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset style="border:0;margin:0;padding:0;">
+          <legend class="nc-label">Cor do {{ mascote_nome }}</legend>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;">
+            {% for cor in cores_mascote %}
+            <label class="nc-cor-opcao" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid {{ 'var(--nc-text)' if cor.id == mascote_cor_id else 'var(--nc-border)' }};border-radius:999px;cursor:pointer;font-size:13px;font-weight:600;color:var(--nc-text);">
+              <input type="radio" name="cor" value="{{ cor.id }}" {{ 'checked' if cor.id == mascote_cor_id }}
+                     onchange="this.form.submit()" style="position:absolute;opacity:0;width:0;height:0;">
+              <span aria-hidden="true" style="width:16px;height:16px;border-radius:50%;background:{{ cor.cor if cor.cor else 'conic-gradient(#C98A4B 0 33%, #18A575 0 66%, #8C7BFF 0)' }};border:1px solid rgba(0,0,0,0.2);"></span>
+              {{ cor.nome }}
+            </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="nc-card" style="padding:28px;">
+      <h3 style="margin:0 0 16px;font-size:12px;font-weight:800;color:var(--nc-text2);text-transform:uppercase;letter-spacing:1px;">Conta</h3>
+      <div class="settings-row-click" id="rowSenha" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+        <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Alterar senha</p>
+        <span style="color:var(--nc-text2);">›</span>
+      </div>
+      <div style="height:1px;background:var(--nc-border);"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;">
+        <div>
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Notificações</p>
+          <p style="margin:0;font-size:11px;color:var(--nc-text2);">Preferência salva — o envio ainda está sendo construído.</p>
+        </div>
+        <form method="POST" action="{{ url_for('salvar_notificacoes') }}" style="margin:0;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="checkbox" name="notificacoes_ativas" aria-label="Receber notificações" {{ 'checked' if notificacoes_ativas else '' }} onchange="this.form.submit()">
+        </form>
+      </div>
+      <div style="height:1px;background:var(--nc-border);"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;">   {# [CRONOMETRO-DISCRETO] #}
+        <div>
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Cronômetro nas tarefas</p>
+          <p style="margin:0;font-size:11px;color:var(--nc-text2);">Opcional. Mostra o botão ▶ para cronometrar uma tarefa. Desligar só esconde os botões de começar.</p>
+        </div>
+        <form method="POST" action="{{ url_for('salvar_cronometro') }}" style="margin:0;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="checkbox" name="cronometro_ativo" aria-label="Mostrar o cronômetro nas tarefas" {{ 'checked' if cronometro_ativo else '' }} onchange="this.form.submit()">
+        </form>
+      </div>
+      <div style="height:1px;background:var(--nc-border);"></div>
+      <div id="rowExcluirConta" class="settings-row-click" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+        <p style="margin:0;font-size:14px;font-weight:700;color:#EF4444;">Excluir conta</p>
+        <span style="color:var(--nc-text2);">›</span>
+      </div>
+      <div style="height:1px;background:var(--nc-border);"></div>
+      <a href="{{ url_for('exportar_dados') }}" style="text-decoration:none;">
+        <div class="settings-row-click" style="display:flex;justify-content:space-between;padding:16px 0;cursor:pointer;">
+          <p style="margin:0;font-size:14px;font-weight:700;color:var(--nc-text);">Exportar meus dados</p>
+          <span style="color:var(--nc-text2);">›</span>
+        </div>
+      </a>
+    </div>
+
+    <p style="text-align:center;font-size:12px;font-weight:500;color:var(--nc-text2);">NEOCORTEX</p>
+  </div>
+</div>
+
+<form id="formEditarNome" method="POST" action="{{ url_for('atualizar_perfil') }}" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="nome" id="inputNomeNovo">
+</form>
+
+<form id="formTrocarSenha" method="POST" action="{{ url_for('trocar_senha_rota') }}" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="senha_atual" id="inputSenhaAtual">
+  <input type="hidden" name="nova_senha" id="inputNovaSenha">
+</form>
+
+<script>
+  document.getElementById('btnEditarNome').addEventListener('click', function () {
+    const nome = prompt('Novo nome:', "{{ session.nome }}");
+    if (nome && nome.trim()) {
+      document.getElementById('inputNomeNovo').value = nome.trim();
+      document.getElementById('formEditarNome').submit();
+    }
+  });
+
+  document.getElementById('rowSenha').addEventListener('click', function () {
+    const atual = prompt('Digite sua senha atual:');
+    if (atual === null) return;
+    const nova = prompt('Digite a nova senha (mínimo 8 caracteres):');
+    if (nova === null) return;
+    document.getElementById('inputSenhaAtual').value = atual;
+    document.getElementById('inputNovaSenha').value = nova;
+    document.getElementById('formTrocarSenha').submit();
+  });
+
+  const toggle = document.getElementById('toggleDark');
+  const DARK_KEY = 'neocortex_dark';
+  if (localStorage.getItem(DARK_KEY) === 'true') {
+    document.documentElement.classList.add('dark');
+    toggle.classList.add('on');
+  }
+  toggle.addEventListener('click', function () {
+    const ligado = document.documentElement.classList.toggle('dark');
+    toggle.classList.toggle('on', ligado);
+    localStorage.setItem(DARK_KEY, ligado);
+  });
+
+  document.getElementById('rowExcluirConta').addEventListener('click', function () {
+    const senha = prompt('Digite sua senha para confirmar a exclusão da conta. Essa ação não pode ser desfeita:');
+    if (senha === null) return;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = "{{ url_for('excluir_conta') }}";
+    form.innerHTML = `
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="senha_atual" value="${senha.replace(/"/g, '&quot;')}">
+    `;
+    document.body.appendChild(form);
+    form.submit();
+  });
+</script>
+{% endblock %}

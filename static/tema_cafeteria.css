@@ -1,0 +1,151 @@
+/* ============================================================
+   NEOCORTEX - Tema Cafeteria  ->  static/tema_cafeteria.css
+   Só vale com <html data-tema="cafeteria">. Não muda estrutura:
+   redefine as variáveis e as classes que já existem no common.css.
+   Cores de STATUS (verde concluída, âmbar em andamento...) ficam
+   iguais de propósito: o significado não muda com o tema.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+
+[data-tema="cafeteria"] {
+  --nc-bg: #F5EDE3;
+  --nc-surface: #FFFBF6;
+  --nc-border: #E6D6C4;
+  --nc-text: #3B2A22;
+  --nc-text2: #6B5446;
+  --nc-blue: #8A4B12;      /* destaque principal (caramelo escuro) */
+  --nc-purple: #8A5A44;
+
+  --cafe-expresso: #3B2A22;
+  --cafe-torra: #6F3F22;
+  --cafe-caramelo: #B5793E;
+  --cafe-creme: #F3DFC6;
+  --cafe-destaque: #8A4B12;
+  --cafe-titulo: 'Fraunces', Georgia, serif;
+}
+.dark[data-tema="cafeteria"] {
+  --nc-bg: #1E1612;
+  --nc-surface: #2A201A;
+  --nc-border: #4A3A2F;
+  --nc-text: #F5EDE3;
+  --nc-text2: #C9B3A2;
+  --nc-blue: #E0A96D;
+  --nc-purple: #C08A6B;
+  --cafe-destaque: #E0A96D;
+}
+
+/* ---------- títulos ---------- */
+[data-tema="cafeteria"] .app-topbar h2 { font-family: var(--cafe-titulo); font-weight: 700; letter-spacing: 0; }
+
+/* ---------- menu lateral ---------- */
+[data-tema="cafeteria"] .app-sidebar { background: var(--cafe-expresso); }
+.dark[data-tema="cafeteria"] .app-sidebar { background: #140E0B; }
+[data-tema="cafeteria"] .app-sidebar .blob1 { background: rgba(201, 138, 75, 0.30); }
+[data-tema="cafeteria"] .app-sidebar .blob2 { background: rgba(243, 223, 198, 0.10); }
+[data-tema="cafeteria"] .app-sidebar a { color: rgba(243, 223, 198, 0.78); }
+[data-tema="cafeteria"] .app-sidebar a:hover { background: rgba(243, 223, 198, 0.10); color: #FFFFFF; }
+[data-tema="cafeteria"] .app-sidebar a.active { background: var(--cafe-creme); color: var(--cafe-expresso); }
+[data-tema="cafeteria"] .app-sidebar a.logout { color: #F2B8A8; }
+
+/* ---------- botões, campos e controles ---------- */
+[data-tema="cafeteria"] .btn-primary {
+  background: var(--cafe-torra);
+  box-shadow: 0 4px 16px rgba(59, 42, 34, 0.25);
+}
+.dark[data-tema="cafeteria"] .btn-primary { background: #B5793E; color: #1E1612; }
+[data-tema="cafeteria"] .btn-outline:hover,
+[data-tema="cafeteria"] .btn-ghost-sm:hover { border-color: var(--cafe-destaque); color: var(--cafe-destaque); }
+[data-tema="cafeteria"] .nc-input:focus,
+[data-tema="cafeteria"] .app-topbar .search:focus { border-color: var(--cafe-destaque); }
+[data-tema="cafeteria"] .chip.active { border-color: var(--cafe-destaque); background: rgba(181, 121, 62, 0.14); color: var(--cafe-destaque); }
+[data-tema="cafeteria"] .nc-toggle.on { background: var(--cafe-torra); }
+[data-tema="cafeteria"] .app-topbar .avatar,
+[data-tema="cafeteria"] .fab { background: var(--cafe-torra); box-shadow: 0 10px 24px rgba(59, 42, 34, 0.30); }
+[data-tema="cafeteria"] .nc-card { border-radius: 20px; box-shadow: 0 6px 18px rgba(59, 42, 34, 0.07); }
+
+/* ---------- chat ---------- */
+[data-tema="cafeteria"] .chat-bubble-user { background: var(--cafe-torra); box-shadow: 0 4px 16px rgba(59, 42, 34, 0.22); }
+[data-tema="cafeteria"] .chat-avatar-simples { background: var(--cafe-torra); }
+
+/* ---------- calendário ---------- */
+[data-tema="cafeteria"] .cal-head-day.is-today .wd { color: var(--cafe-destaque); }
+[data-tema="cafeteria"] .cal-head-day.is-today .num,
+[data-tema="cafeteria"] .cal-day-big { background: var(--cafe-torra); }
+[data-tema="cafeteria"] .cal-col-today { background-color: rgba(181, 121, 62, 0.07); }
+[data-tema="cafeteria"] .cal-cell-day:hover { box-shadow: inset 0 0 0 2px rgba(181, 121, 62, 0.45); }
+
+/* ---------- elementos com cor inline nos templates (marcados com classe) ---------- */
+/* dashboard: cartão "Progresso de hoje" */
+[data-tema="cafeteria"] .nc-hero-progresso {
+  background: linear-gradient(155deg, #3B2A22 0%, #6F3F22 60%, #9C6236 100%) !important;
+}
+[data-tema="cafeteria"] .nc-barra-progresso { background: linear-gradient(90deg, #E0A96D, #FFF8F0) !important; }
+/* tarefas: aba ativa (Hoje / Próximas / Todas) */
+[data-tema="cafeteria"] .nc-aba-ativa { background: var(--cafe-torra) !important; color: #FFFFFF !important; }
+
+/* ---------- robô flutuante: balão combinando ---------- */
+[data-tema="cafeteria"] .nc-mascote-dock .nc-mascote-balao { border-color: #E2CDB6; }
+
+/* acessibilidade tem prioridade sobre o tema: a fonte para dislexia vale também nos títulos */
+html[data-tipografia="dislexia"] .app-topbar h2 { font-family: 'Lexend', sans-serif; }
+/* ============================================================
+   TELA INICIAL E CALENDÁRIO TEMÁTICOS (cores para temas_comum.css)
+   ============================================================ */
+[data-tema="cafeteria"] {
+  --tema-titulo: var(--cafe-titulo);
+  --tema-destaque: var(--cafe-destaque);
+  --tema-boas-fundo: linear-gradient(135deg, #FFFBF6 55%, #F3E6D6);
+  --tema-balao: #F3E6D6;
+  --tema-trilho: #EFE2D2;
+  --tema-barra: linear-gradient(90deg, #8A5A44, #C08A6B);
+  --tema-selo-fundo: #F3DFC6;
+  --tema-selo-texto: #3B2A22;
+  --nc-aba-ativa-bg: var(--cafe-torra);
+  --nc-hoje-bg: var(--cafe-torra);
+  --nc-hoje-tinta: rgba(181, 121, 62, 0.08);
+}
+.dark[data-tema="cafeteria"] {
+  --tema-boas-fundo: linear-gradient(135deg, #2A201A 55%, #33261E);
+  --tema-balao: #33261E;
+  --tema-trilho: #3A2D24;
+  --tema-selo-fundo: #4A3A2F;
+  --tema-selo-texto: #F3DFC6;
+}
+
+/* prateleira: 7 xícaras que enchem conforme as tarefas do dia são concluídas */
+.nc-prateleira {
+  list-style: none; margin: 0; padding: 8px 4px 18px; display: flex; gap: 8px; overflow-x: auto;
+  background: linear-gradient(to top, #B5793E 0 7px, #8A5A44 7px 10px, transparent 10px);
+}
+.nc-prateleira li { flex: 1 0 104px; min-width: 104px; }
+.nc-dia-xicara {
+  width: 100%; padding: 12px 6px 14px; border: 3px solid transparent; border-radius: 16px; background: transparent;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; font: inherit; color: var(--nc-text);
+  transition: background 0.15s;
+}
+.nc-dia-xicara:hover { background: rgba(181, 121, 62, 0.10); }
+.nc-dia-xicara:focus-visible { outline: 3px solid var(--cafe-destaque); outline-offset: 2px; }
+.nc-dia-xicara.is-hoje { background: var(--nc-surface); border-color: #B5793E; }
+.nc-dia-xicara svg .alca { fill: none; stroke: var(--nc-text); stroke-width: 4; stroke-linecap: round; }
+.nc-dia-xicara svg .copo { fill: none; stroke: var(--nc-text); stroke-width: 3; stroke-linejoin: round; }
+.nc-dia-xicara svg .cafe { fill: #8A5A44; }
+.nc-dia-xicara svg .pires { fill: #E9D8C6; stroke: var(--nc-text); stroke-width: 2.5; }
+.dark .nc-dia-xicara svg .pires { fill: #4A3A2F; }
+.nc-dia-xicara svg .vapor { fill: none; stroke: #B89C88; stroke-width: 2.5; stroke-linecap: round; }
+.nc-dia-xicara .dia { font-family: var(--cafe-titulo); font-size: 17px; font-weight: 700; }
+.nc-dia-xicara .dia small { font-family: inherit; font-size: 12px; font-weight: 600; color: var(--nc-text2); }
+.nc-dia-xicara .resumo { font-size: 13px; font-weight: 700; }
+.nc-dia-xicara .estado { font-size: 12px; font-weight: 800; color: var(--nc-text2); }
+.nc-dia-xicara.estado-feito .estado { color: #2E6B3F; }
+.nc-dia-xicara.estado-parcial .estado { color: #8A4B12; }
+.nc-dia-xicara.estado-hoje .estado { color: var(--cafe-destaque); }
+.dark .nc-dia-xicara.estado-feito .estado { color: #7FD39A; }
+.dark .nc-dia-xicara.estado-parcial .estado { color: #E0A96D; }
+
+/* rede da semana na VERSÃO SIMPLES do tema (a completa usa a prateleira) */
+[data-tema="cafeteria"] {
+  --trilha-fundo: radial-gradient(120% 140% at 20% 0%, #4A3428 0%, #2B1E17 60%, #1E1612 100%);
+  --trilha-cartao: #33251D; --trilha-cartao-feito: linear-gradient(180deg, #4A3428 0%, #33251D 100%); --trilha-cartao-hoje: #3D2C22;
+  --trilha-borda: #6B4E3C; --trilha-apagada: #4A3A2F;
+  --trilha-luz: #F2C35B; --trilha-luz2: #E0A96D; --trilha-brilho: rgba(242, 195, 91, 0.5);
+}

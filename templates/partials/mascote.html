@@ -1,0 +1,9 @@
+{# Mascote do NEOCORTEX — só a marcação; CSS/JS já são carregados uma vez em base_app_novo.html #}
+<div data-nc-mascote
+     data-skin="{{ mascote_skin|default('robo', true) }}"
+     data-modo="{{ mascote_modo|default('normal', true) }}"
+     data-intensidade="{{ mascote_intensidade|default('', true) }}"
+     data-acessorio="{{ mascote_acessorio|default('', true) }}"
+     {% if mascote_cor %}data-cor="{{ mascote_cor }}" data-brilho="{{ mascote_brilho }}"{% endif %}
+     data-assistente-url="{{ url_for('assistente') }}"
+     {% if mascote_estatico %}data-estatico{% endif %}></div>

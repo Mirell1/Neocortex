@@ -1,0 +1,161 @@
+/* ============================================================
+   NEOCORTEX - Layout comum aos temas  ->  static/temas_comum.css
+   Carregado sempre que a gamificação está ligada (inclusive no tema
+   padrão, que tem a sua própria versão imersiva: a rede da semana).
+   Estrutura da tela inicial; as CORES vêm de cada tema (variáveis --tema-*).
+   ============================================================ */
+.nc-inicio { padding: 32px; display: flex; flex-direction: column; gap: 24px; }
+.nc-inicio-linha { display: flex; flex-wrap: wrap; gap: 24px; }
+
+/* boas-vindas com o mascote dentro do cartão */
+.nc-inicio-boas {
+  flex: 2 1 440px; min-width: 0; padding: 26px 28px; display: flex; flex-wrap: wrap;
+  align-items: center; gap: 20px; position: relative; overflow: hidden; background: var(--tema-boas-fundo, var(--nc-surface));
+}
+.nc-inicio-boas .texto { flex: 1 1 240px; min-width: 0; position: relative; }
+.nc-inicio-boas h2 { margin: 0 0 8px; font-family: var(--tema-titulo, inherit); font-size: 30px; line-height: 1.15; color: var(--nc-text); }
+.nc-inicio-boas .frase {
+  margin: 0; padding: 12px 16px; border-radius: 14px; font-size: 15px; line-height: 1.5; font-weight: 600;
+  color: var(--nc-text); background: var(--tema-balao, var(--nc-bg)); border: 1px solid var(--nc-border);
+}
+.nc-inicio-boas .dica { margin: 10px 0 0; font-size: 12px; font-weight: 600; color: var(--nc-text2); }
+.nc-inicio-boas .dica .so-toque { display: none; }
+@media (hover: none) { .nc-inicio-boas .dica .so-mouse { display: none; } .nc-inicio-boas .dica .so-toque { display: inline; } }
+.nc-inicio-mascote { flex: 0 0 auto; position: relative; }
+.nc-inicio-mascote .nc-mascote { --nc-mascote-tamanho: 136px; flex-direction: column-reverse; }
+.nc-inicio-mascote .nc-mascote-balao { max-width: 15rem; }
+
+/* placar do dia (concluídas de planejadas: nunca contra alguém) */
+.nc-inicio-placar { flex: 1 1 250px; min-width: 0; padding: 26px 28px; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.nc-inicio-placar .rotulo { margin: 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--tema-destaque); }
+.nc-inicio-placar .numero { margin: 0; font-size: 42px; font-weight: 800; line-height: 1; color: var(--nc-text); }
+.nc-inicio-placar .numero span { font-size: 17px; font-weight: 700; color: var(--nc-text2); }
+.nc-inicio-placar .barra { height: 14px; border-radius: 999px; background: var(--tema-trilho, var(--nc-border)); overflow: hidden; }
+.nc-inicio-placar .barra > span { display: block; height: 100%; border-radius: 999px; background: var(--tema-barra); }
+.nc-inicio-placar .nota { margin: 0; font-size: 12px; font-weight: 600; color: var(--nc-text2); }
+
+/* semana temática */
+.nc-inicio-semana { padding: 24px 24px 20px; }
+.nc-inicio-semana .cabeca { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.nc-inicio-semana h3 { margin: 0; font-family: var(--tema-titulo, inherit); font-size: 22px; color: var(--nc-text); }
+.nc-inicio-semana .cabeca a { font-size: 13px; font-weight: 700; color: var(--tema-destaque); }
+
+/* títulos e selos nas tarefas de hoje */
+.nc-titulo-tema { font-family: var(--tema-titulo, inherit) !important; font-size: 20px !important; }
+.nc-selo {
+  padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; flex-shrink: 0;
+  background: var(--tema-selo-fundo); color: var(--tema-selo-texto);
+}
+
+/* calendário: área da visão temática */
+.nc-cal-tema { padding: 24px; }
+.nc-cal-tema .ajuda { margin: 0 0 14px; font-size: 13px; font-weight: 600; color: var(--nc-text2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .nc-camisa, .nc-dia-xicara { transition: none !important; }
+}
+
+
+/* ============================================================
+   TEMA PADRÃO (NEOCORTEX) - versão imersiva, liberada para todos
+   Mantém a identidade: gradiente marinho/azul/roxo e o robô.
+   ============================================================ */
+[data-tema="padrao"] {
+  --tema-destaque: #2563EB;
+  --tema-trilho: #E2E8F0;
+  --tema-barra: linear-gradient(90deg, #2563EB, #7C3AED);
+  --tema-selo-fundo: #DCFCE7;
+  --tema-selo-texto: #166534;
+}
+.dark[data-tema="padrao"] {
+  --tema-destaque: #93C5FD;
+  --tema-trilho: #334155;
+  --tema-selo-fundo: #14532D;
+  --tema-selo-texto: #BBF7D0;
+}
+/* boas-vindas: o mesmo gradiente do cartão de progresso original, agora com o robô dentro */
+[data-tema="padrao"] .nc-inicio-boas {
+  background: linear-gradient(155deg, #01004E 0%, #2563EB 60%, #7C3AED 100%); border: 0;
+}
+[data-tema="padrao"] .nc-inicio-boas::before {
+  content: ""; position: absolute; top: -45%; right: -12%; width: 320px; height: 320px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07); pointer-events: none;
+}
+[data-tema="padrao"] .nc-inicio-boas h2 { color: #FFFFFF; }
+[data-tema="padrao"] .nc-inicio-boas .frase { color: #FFFFFF; background: rgba(1, 0, 78, 0.28); border-color: rgba(255, 255, 255, 0.24); }   /* vidro escuro: texto branco passa de 4,5:1 em todo o gradiente */
+[data-tema="padrao"] .nc-inicio-boas .dica { color: #FFFFFF; }
+/* a semana fica num painel escuro, a "rede" */
+[data-tema="padrao"] .nc-inicio-semana {
+  background: radial-gradient(120% 140% at 20% 0%, #1B1F6B 0%, #0B0F3A 60%, #070A26 100%); border: 0;
+  box-shadow: 0 10px 30px rgba(1, 0, 78, 0.22);
+}
+[data-tema="padrao"] .nc-inicio-semana h3 { color: #FFFFFF; }
+[data-tema="padrao"] .nc-inicio-semana .cabeca a { color: #67E8F9; }
+[data-tema="padrao"] .nc-inicio-semana .nc-trilha-moldura { padding: 0; background: none; box-shadow: none; }
+
+/* ---------- trilha de dias ---------- */
+/* cores da trilha em variáveis: na versão simples dos temas, a rede aparece nas cores do tema */
+.nc-trilha-moldura {
+  padding: 20px; border-radius: 18px;
+  background: var(--trilha-fundo, radial-gradient(120% 140% at 20% 0%, #1B1F6B 0%, #0B0F3A 60%, #070A26 100%));
+}
+.nc-trilha-rolagem { overflow-x: auto; padding-bottom: 4px; }
+.nc-trilha { display: flex; align-items: stretch; min-width: 900px; }
+.nc-dia-trilha {
+  flex: 1 0 116px; min-width: 116px; box-sizing: border-box; padding: 14px 12px; border-radius: 16px;
+  border: 1.5px solid var(--trilha-borda, #4B54A8); background: var(--trilha-cartao, #121852); color: #FFFFFF; font: inherit; text-align: left;
+  display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: transform 0.15s, border-color 0.15s;
+}
+.nc-dia-trilha:hover { transform: translateY(-2px); border-color: #818CF8; }
+.nc-dia-trilha:focus-visible { outline: 3px solid #67E8F9; outline-offset: 2px; }
+.nc-dia-trilha.estado-feito { border: 2px solid var(--trilha-luz, #67E8F9); background: var(--trilha-cartao-feito, linear-gradient(180deg, #17346B 0%, #121A55 100%)); }
+.nc-dia-trilha.is-hoje { border: 2.5px solid var(--trilha-luz2, #C4B5FD); background: var(--trilha-cartao-hoje, #1D1A5E); }
+.nc-dia-trilha.estado-feito.is-hoje { border-color: var(--trilha-luz, #67E8F9); }
+.nc-dia-trilha.estado-planejado { border-style: dashed; }
+.nc-dia-trilha.estado-livre { border: 1.5px dashed var(--trilha-apagada, #2E3575); }
+.nc-dia-trilha .dia { font-size: 17px; font-weight: 800; }
+.nc-dia-trilha .dia small { font-size: 12px; font-weight: 600; color: #A5B4FC; }
+.nc-dia-trilha .bolinhas { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; align-content: flex-start; }
+.nc-dia-trilha .resumo { font-size: 13px; font-weight: 700; color: #E0E7FF; }
+.nc-dia-trilha .estado { font-size: 12px; font-weight: 800; color: #A5B4FC; }
+.nc-dia-trilha.estado-feito .estado { color: #86EFAC; }
+.nc-dia-trilha.estado-parcial .estado,
+.nc-dia-trilha.estado-aberto .estado { color: #FCD34D; }
+.nc-dia-trilha.estado-hoje .estado { color: #DDD6FE; }
+.nc-dia-trilha.estado-livre .estado { color: #9CA5E2; }
+.nc-dia-trilha .vazio { font-size: 12px; font-weight: 600; color: #9CA5E2; }   /* >= 4,5:1 em todas as paletas da rede */
+.nc-dia-trilha .mais { font-size: 11px; font-weight: 800; color: #A5B4FC; }
+
+.bolinha { width: 13px; height: 13px; border-radius: 50%; box-sizing: border-box; display: inline-block; flex: 0 0 auto; }
+.bolinha.feita { background: var(--trilha-luz, #67E8F9); box-shadow: 0 0 8px var(--trilha-brilho, rgba(103, 232, 249, 0.55)); }
+.bolinha.afazer { border: 2px solid #8B93C9; }
+.bolinha.planejada { border: 2px dashed #6B74C9; }
+
+.nc-conexao { flex: 0 0 16px; align-self: center; height: 4px; border-radius: 2px; background: var(--trilha-apagada, #2E3575); }
+.nc-conexao.acesa { background: linear-gradient(90deg, var(--trilha-luz, #67E8F9), var(--trilha-luz2, #C4B5FD)); box-shadow: 0 0 10px var(--trilha-brilho, rgba(103, 232, 249, 0.7)); }
+
+.nc-trilha-legenda {
+  list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px;
+  font-size: 12px; font-weight: 700; color: #C7D2FE;
+}
+.nc-trilha-legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.nc-trilha-legenda .bolinha { width: 12px; height: 12px; }
+.nc-trilha-legenda .nc-conexao { flex: 0 0 18px; width: 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nc-dia-trilha { transition: none; }
+  .nc-dia-trilha:hover { transform: none; }
+}
+
+/* ============================================================
+   ACESSIBILIDADE TEM PRIORIDADE SOBRE O TEMA: com a fonte para dislexia ligada,
+   todos os títulos temáticos (serifa, condensada, manuscrita) usam a Lexend.
+   Cobre o título da página, o cartão de boas-vindas, a semana e os selos de qualquer tema.
+   ============================================================ */
+html[data-tipografia="dislexia"] {
+  --tema-titulo: 'Lexend', sans-serif;
+  --cafe-titulo: 'Lexend', sans-serif;
+  --camp-titulo: 'Lexend', sans-serif;
+  --pap-titulo: 'Lexend', sans-serif;
+}
+html[data-tipografia="dislexia"] .nc-folha .dia { font-family: 'Lexend', sans-serif; font-size: 22px; }

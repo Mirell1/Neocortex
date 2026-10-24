@@ -1,0 +1,116 @@
+/* ==========================================================================
+   NEOCORTEX - responsivo.css  [RESPONSIVO]
+   Adapta o app a celular e tablet SEM mudar nada no computador:
+   as regras de tela pequena ficam todas dentro de @media (max-width: 900px) (ou 640px, no Login).
+   Fora disso só existem duas regras neutras (botão do menu escondido e um agrupamento sem efeito visual).
+   ========================================================================== */
+
+/* ---- neutras (computador): o botão do menu não existe e o agrupamento da barra não gera caixa ---- */
+.app-menu-btn { display: none; }
+.app-topbar-esq { display: contents; }
+.app-menu-fundo[hidden] { display: none; }
+.t-acoes { display: contents; }   /* Tarefas: agrupa os botões da linha sem gerar caixa no computador */
+
+/* ==========================================================================
+   P0 - ESTRUTURA: menu em gaveta, barra superior, janelas
+   ========================================================================== */
+@media (max-width: 900px) {
+  /* o menu vira uma gaveta: fora da tela e fora da ordem de tabulação até o botão ☰ abri-la */
+  .app-sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 200;
+    width: min(280px, 84vw); box-sizing: border-box; overflow-y: auto;
+    transform: translateX(-105%); visibility: hidden;
+    transition: transform .25s ease, visibility 0s linear .25s;
+  }
+  .app-shell.menu-aberto .app-sidebar {
+    transform: none; visibility: visible; box-shadow: 8px 0 32px rgba(0, 0, 0, .35);
+    transition: transform .25s ease;
+  }
+  .app-menu-fundo { position: fixed; inset: 0; z-index: 190; background: rgba(15, 23, 42, .5); }
+  .app-sidebar a { min-height: 44px; box-sizing: border-box; display: flex; align-items: center; }
+
+  .app-main { min-width: 0; }
+  .app-topbar { padding: 10px 14px; gap: 10px; }
+  .app-topbar-esq { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+  .app-topbar h2 { margin: 0; font-size: 18px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-menu-btn {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid var(--nc-border);
+    background: var(--nc-surface); color: var(--nc-text); font-size: 20px; line-height: 1; cursor: pointer; padding: 0;
+  }
+
+  /* janelas: nunca maiores que a tela, com rolagem própria, e cobrindo a TELA toda (não só a área de conteúdo) */
+  .modal-overlay { position: fixed; z-index: 150; box-sizing: border-box; padding: 16px; overflow-y: auto; }
+  .modal-box {
+    width: 100%; max-width: 420px; box-sizing: border-box; padding: 20px;
+    max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto;
+  }
+}
+@media (max-width: 900px) and (prefers-reduced-motion: reduce) {
+  .app-sidebar, .app-shell.menu-aberto .app-sidebar { transition: none; }
+}
+
+/* ==========================================================================
+   P0 - LOGIN: no celular o painel decorativo vira uma faixa e o formulário aparece logo
+   ========================================================================== */
+@media (max-width: 640px) {
+  .auth-layout { flex-direction: column !important; height: auto !important; min-height: 100vh; }
+  .auth-left-panel { width: auto !important; min-width: 0 !important; padding: 20px 20px !important; flex-shrink: 0; }
+  .auth-left-panel .brand-mid { display: none !important; }
+  .auth-direita { padding: 28px 20px !important; align-items: flex-start !important; }
+}
+
+/* ==========================================================================
+   P1 - TAREFAS, AGENDA, CONFIGURAÇÕES, INÍCIO
+   ========================================================================== */
+@media (max-width: 900px) {
+  /* margens das telas: 32 px de cada lado é demais para o celular */
+  .app-content > div[style*="padding:32px"] { padding: 16px !important; }
+
+  /* Tarefas: a linha vira duas camadas: [caixa] [título] / [cronômetro, status e ações] */
+  .t-linha { display: grid !important; grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; row-gap: 8px; align-items: start !important; padding: 14px 14px !important; }
+  .t-linha > form { grid-column: 1; grid-row: 1; }
+  .t-linha > .t-titulo { grid-column: 2; grid-row: 1; }
+  .t-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; grid-column: 2; grid-row: 2; }
+  .t-acoes button { min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; }
+  .t-check { min-width: 32px; min-height: 32px; }
+  a[href*="filtro="] { display: inline-flex; align-items: center; min-height: 36px; box-sizing: border-box; }
+
+  /* Agenda: a barra quebra em linhas e o nome do mês deixa de exigir 240 px */
+  .cal-barra { flex-wrap: wrap !important; gap: 12px !important; }
+  #calLabel { min-width: 0 !important; flex: 1; }
+  #calTabs button, .cal-barra .btn-ghost-sm { min-height: 36px; min-width: 36px; }
+
+  /* caixas de marcar e botões de concluir: alvos de toque confortáveis */
+  .app-content input[type="checkbox"] { width: 32px; height: 32px; }
+  .app-content button[aria-label^="Concluir"] { min-width: 32px; min-height: 32px; }
+}
+
+/* ==========================================================================
+   P2 - TEXTOS PEQUENOS (Loja, Jornada, Início, Configurações...): mínimo de 12 px no celular
+   ========================================================================== */
+@media (max-width: 900px) {
+  [style*="font-size:11px"], [style*="font-size:10px"], .badge, .nc-estado-tag, .nc-itens li, .auth-left-panel .eyebrow { font-size: 12px !important; }
+}
+
+/* ==========================================================================
+   REFINAMENTOS (vistos nas telas reais): botão "+", linha de data e hora das janelas, busca do Início e mascote
+   ========================================================================== */
+@media (max-width: 900px) {
+  /* o conteúdo ganha folga embaixo para o último item rolar acima do botão "+" e do mascote */
+  .app-content { padding-bottom: 96px; }
+  /* o botão "+" fica preso ao canto da TELA: antes ele rolava junto com a lista e sumia */
+  .fab { position: fixed; bottom: 20px; right: 16px; z-index: 60; }
+  /* janelas: data em uma linha e hora e minuto lado a lado na linha de baixo (antes o minuto passava da margem) */
+  .modal-box [style*="display:flex;gap:8px"] { flex-wrap: wrap !important; }
+  .modal-box [style*="display:flex;gap:8px"] > input[type="date"] { flex: 1 1 100% !important; min-width: 0; }
+  .modal-box [style*="display:flex;gap:8px"] > select { flex: 1 1 0 !important; width: auto !important; min-width: 0; }
+}
+@media (max-width: 640px) {
+  /* Início: a busca encolhe para o título "Olá, ..." caber */
+  .app-topbar .search { width: 120px !important; min-width: 0; }
+  /* mascote menor e com balão mais estreito, para cobrir menos do conteúdo */
+  .nc-mascote-dock { right: 12px; }
+  .nc-mascote-dock .nc-mascote { --nc-mascote-tamanho: 68px; }
+  .nc-mascote-dock .nc-mascote-balao { max-width: min(240px, 64vw) !important; font-size: 12px; }
+}

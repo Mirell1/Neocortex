@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="pt-BR" data-tema="{{ tema_ativo|default('padrao') }}" data-fonte="{{ acess_fonte }}" data-contraste="{{ acess_contraste }}" data-tipografia="{{ acess_tipografia }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEOCORTEX — {{ titulo_pagina }}</title>
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('neocortex_dark') === 'true') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ajustes.css') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  {% if mascote_ativo %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='mascote_robo.css') }}">
+  {% endif %}
+  {# [TEMA] cada tema é um CSS isolado (static/tema_<id>.css); o padrão não carrega nada a mais.
+     tema_ativo já vem validado contra o catálogo TEMAS no app.py #}
+  {% if mascote_ativo %}
+  {# versão imersiva da tela inicial e da agenda: vale para todos os temas, inclusive o padrão #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='temas_comum.css') }}">
+  {% endif %}
+  {% if tema_ativo and tema_ativo != 'padrao' %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='tema_' ~ tema_ativo ~ '.css') }}">
+  {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='responsivo.css') }}">   {# [RESPONSIVO] #}
+</head>
+<body>
+  <div class="app-shell">
+    <div class="app-menu-fundo" id="menuFundo" hidden></div>
+    <div class="app-sidebar" id="menuLateral">
+      <div class="blob blob1"></div>
+      <div class="blob blob2"></div>
+      <div class="brand"><img src="{{ url_for('static', filename='logo.png') }}" alt="NEOCORTEX"></div>
+      <a href="{{ url_for('dashboard') }}" class="{{ 'active' if pagina == 'dashboard' else '' }}">🏠 Início</a>
+      <a href="{{ url_for('calendario') }}" class="{{ 'active' if pagina == 'calendario' else '' }}">🗓️ Agenda</a>
+      <a href="{{ url_for('tarefas') }}" class="{{ 'active' if pagina == 'tarefas' else '' }}">✅ Tarefas</a>
+      <a href="{{ url_for('rotina') }}" class="{{ 'active' if pagina == 'rotina' else '' }}">📅 Rotina Fixa</a>
+      <a href="{{ url_for('objetivos') }}" class="{{ 'active' if pagina == 'objetivos' else '' }}">🎯 Objetivos</a>
+      <a href="{{ url_for('assistente') }}" class="{{ 'active' if pagina == 'assistente' else '' }}">🤖 Assistente</a>
+      <a href="{{ url_for('jornada') }}" class="{{ 'active' if pagina == 'jornada' else '' }}">🗺️ Jornada</a>
+      <a href="{{ url_for('mascote_loja') }}" class="{{ 'active' if pagina == 'mascote_loja' else '' }}">🛍️ Loja</a>
+      <a href="{{ url_for('configuracoes') }}" class="{{ 'active' if pagina == 'configuracoes' else '' }}">⚙️ Configurações</a>
+      <a class="logout" href="{{ url_for('logout') }}">↩ Sair</a>
+    </div>
+    <div class="app-main">
+      <div class="app-topbar">
+        <div class="app-topbar-esq">
+          <button type="button" class="app-menu-btn" id="btnMenu" aria-label="Abrir menu" aria-controls="menuLateral" aria-expanded="false">☰</button>
+          <h2>{{ titulo_pagina }}</h2>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;">
+          {% block topbar_extra %}{% endblock %}
+          <div class="avatar">{{ inicial_usuario }}</div>
+        </div>
+      </div>
+      <div class="app-content" style="position:relative;">
+        {% block conteudo %}{% endblock %}
+      </div>
+    </div>
+  </div>
+
+  {% if mascote_ativo %}
+    {# no assistente o mascote é o avatar das mensagens; na tela inicial IMERSIVA ele fica dentro do cartão de boas-vindas;
+       na tela inicial CLÁSSICA (a original) ele continua flutuando no canto #}
+    {% if pagina != 'assistente' and not (pagina == 'dashboard' and tema_semana) %}
+    <div class="nc-mascote-dock{{ ' acima-do-fab' if pagina in ('tarefas', 'rotina', 'objetivos') else '' }}">
+      {% include "partials/mascote.html" %}
+    </div>
+    {% endif %}
+    <script>
+      window.NC_EVENTOS_INICIAIS = {{ (mascote_eventos or []) | tojson }};
+      window.NC_SAUDACAO_DADOS = {{ ({'pendentes': total - concluidas, 'total': total} if pagina == 'dashboard' and total is defined else {})|tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='mascote_robo.js') }}" defer></script>
+  {% endif %}
+
+  <script>
+  /* [RESPONSIVO] menu em gaveta (celular e tablet): abre pelo botão ☰ e fecha ao tocar fora, com Esc ou ao escolher uma tela */
+  (function () {
+    var shell = document.querySelector('.app-shell'), btn = document.getElementById('btnMenu');
+    var fundo = document.getElementById('menuFundo'), menu = document.getElementById('menuLateral');
+    if (!shell || !btn || !fundo || !menu) return;
+    function abrir(aberto) {
+      shell.classList.toggle('menu-aberto', aberto); fundo.hidden = !aberto;
+      btn.setAttribute('aria-expanded', aberto ? 'true' : 'false'); btn.setAttribute('aria-label', aberto ? 'Fechar menu' : 'Abrir menu');
+      if (aberto) { var a = menu.querySelector('a'); if (a) a.focus(); } else { btn.focus(); }
+    }
+    btn.addEventListener('click', function () { abrir(!shell.classList.contains('menu-aberto')); });
+    fundo.addEventListener('click', function () { abrir(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && shell.classList.contains('menu-aberto')) abrir(false); });
+    menu.addEventListener('click', function (e) { if (e.target.closest('a')) abrir(false); });
+    var largo = window.matchMedia('(min-width: 901px)');
+    function aoMudar(m) { if (m.matches && shell.classList.contains('menu-aberto')) { shell.classList.remove('menu-aberto'); fundo.hidden = true; btn.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-label', 'Abrir menu'); } }
+    if (largo.addEventListener) largo.addEventListener('change', aoMudar); else if (largo.addListener) largo.addListener(aoMudar);
+  })();
+  </script>
+
+  <div vw class="enabled">
+    <div vw-access-button class="active"></div>
+    <div vw-plugin-wrapper><div class="vw-plugin-top-wrapper"></div></div>
+  </div>
+  <script src="https://vlibras.gov.br/app/vlibras-plugin.js"></script>
+  <script>new window.VLibras.Widget('https://vlibras.gov.br/app');</script>
+</body>
+</html>

@@ -13,6 +13,7 @@ Princípios:
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -198,23 +199,52 @@ POOL_CONEXOES = pool.ThreadedConnectionPool(
 # CONEXÃO
 # ============================================================
 
+def _obter_conexao_validada():
+    """Substitui uma conexão caída ANTES de iniciar a operação do chamador."""
+    for tentativa in range(2):
+        conn = POOL_CONEXOES.getconn()
+        try:
+            if conn.closed:
+                raise psycopg2.InterfaceError("Conexão fechada no pool")
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.rollback()  # encerra somente a transação de verificação
+            return conn
+        except BaseException as erro:
+            try:
+                POOL_CONEXOES.putconn(conn, close=True)
+            except Exception:
+                logging.getLogger(__name__).warning("Falha ao descartar conexão inválida")
+            if not isinstance(erro, (psycopg2.InterfaceError, psycopg2.OperationalError)) or tentativa == 1:
+                raise
+
+
 @contextmanager
 def conectar():
-    """
-    Pega uma conexão do pool e a devolve ao final da operação.
-
-    Commit automático quando tudo termina corretamente.
-    Rollback automático quando ocorre qualquer erro.
-    """
-    conn = POOL_CONEXOES.getconn()
+    """Valida a conexão; nunca repete a operação, inclusive se o commit falhar."""
+    conn = _obter_conexao_validada()
+    descartar = False
+    houve_erro = False
     try:
         yield conn
         conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    except BaseException:
+        houve_erro = True
+        descartar = bool(conn.closed)
+        if not descartar:
+            try:
+                conn.rollback()
+            except Exception:
+                descartar = True
+                logging.getLogger(__name__).warning("Rollback falhou; conexão será descartada")
+        raise  # preserva o erro original da consulta ou do commit
     finally:
-        POOL_CONEXOES.putconn(conn, close=bool(conn.closed))
+        try:
+            POOL_CONEXOES.putconn(conn, close=descartar or bool(conn.closed))
+        except Exception:
+            if not houve_erro:
+                raise
+            logging.getLogger(__name__).warning("Falha ao devolver conexão após erro")
 
 
 def criar_tabelas():
